@@ -19,7 +19,7 @@ func NewRoomHandler(roomService *services.RoomService) *RoomHandler {
 
 func (rh *RoomHandler) GetRoom(w http.ResponseWriter, r *http.Request) {
 	roomId := getRoomIdFromPath(r)
-	room := rh.roomService.GetRoom(roomId)
+	room := rh.roomService.GetRoomSnapshot(roomId)
 
 	if room == nil {
 		http.Error(w, "Room not found", http.StatusNotFound)

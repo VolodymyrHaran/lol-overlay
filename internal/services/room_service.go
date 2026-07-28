@@ -3,45 +3,50 @@ package services
 import (
 	"lol-timer/internal/constants"
 	"lol-timer/internal/models"
+	"lol-timer/internal/repositories"
 	"sync"
 	"time"
 )
 
 type RoomService struct {
-	mu    sync.Mutex
-	rooms map[string]*models.Room
+	mu         sync.Mutex
+	repository repositories.RoomRepository
 }
 
-func NewRoomService() *RoomService {
+func NewRoomService(
+	repository repositories.RoomRepository,
+) *RoomService {
 	return &RoomService{
-		rooms: make(map[string]*models.Room),
+		repository: repository,
 	}
 }
 
-func (s *RoomService) GetRoom(roomId string) *models.Room {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.rooms[roomId]
-}
-
-func (s *RoomService) GetRooms() []*models.Room {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	rooms := make([]*models.Room, 0, len(s.rooms))
-
-	for _, room := range s.rooms {
-		rooms = append(rooms, room)
+func (s *RoomService) GetRoomSnapshot(
+	roomId string,
+) *models.Room {
+	room, exists := s.repository.Get(roomId)
+	if !exists {
+		return nil
 	}
-	return rooms
+
+	return room
 }
 
-func (s *RoomService) CreateRoom(roomId string) *models.Room {
+func (s *RoomService) GetRoomSnapshots() []*models.Room {
+	return s.repository.GetAll()
+}
+
+func (s *RoomService) CreateRoom(
+	roomId string,
+) *models.Room {
+	if roomId == "" {
+		return nil
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if room, exists := s.rooms[roomId]; exists {
+	if room, exists := s.repository.Get(roomId); exists {
 		return room
 	}
 
@@ -50,41 +55,58 @@ func (s *RoomService) CreateRoom(roomId string) *models.Room {
 		LastUpdated: time.Now(),
 	}
 
-	s.rooms[roomId] = room
-	return room
+	s.repository.Save(room)
+
+	return room.Clone()
 }
 
-func (s *RoomService) AddPlayer(roomId string, player models.Player) bool {
+func (s *RoomService) AddPlayer(
+	roomId string,
+	player models.Player,
+) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	room, exists := s.rooms[roomId]
+	room, exists := s.repository.Get(roomId)
 	if !exists {
 		return false
 	}
 
-	for i := range room.Players {
-		existingPlayer := &room.Players[i]
+	existingPlayer := FindPlayerByRiotId(
+		room,
+		player.GameName,
+		player.TagLine,
+	)
 
-		if existingPlayer.GameName == player.GameName &&
-			existingPlayer.TagLine == player.TagLine {
+	if existingPlayer != nil {
+		existingPlayer.Champion = player.Champion
+		existingPlayer.ChampionId = player.ChampionId
+		room.LastUpdated = time.Now()
 
-			existingPlayer.Champion = player.Champion
-			existingPlayer.ChampionId = player.ChampionId
-
-			return true
-		}
+		s.repository.Save(room)
+		return true
 	}
 
-	player.SummonerSpellHaste = constants.DefaultSummonerSpellHaste
+	player.SummonerSpellHaste =
+		constants.DefaultSummonerSpellHaste
+
 	if len(player.Spells) == 0 {
 		player.Spells = []models.SummonerSpell{
-			{Name: "Flash", IsReady: true, BaseCooldown: 300},
-			{Name: "Ignite", IsReady: true, BaseCooldown: 180},
+			{
+				Name:         "Flash",
+				IsReady:      true,
+				BaseCooldown: 300,
+			},
+			{
+				Name:         "Ignite",
+				IsReady:      true,
+				BaseCooldown: 180,
+			},
 		}
 	}
 
 	room.Players = append(room.Players, player)
+	s.saveRoom(room)
 
 	return true
 }
@@ -94,6 +116,10 @@ func FindPlayerByRiotId(
 	gameName string,
 	tagLine string,
 ) *models.Player {
+	if room == nil {
+		return nil
+	}
+
 	for i := range room.Players {
 		player := &room.Players[i]
 
@@ -109,30 +135,42 @@ func FindPlayerByRiotId(
 func (s *RoomService) RefreshCooldowns() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.refreshCooldowns()
+
+	rooms := s.repository.GetAll()
+
+	for _, room := range rooms {
+		refreshRoomCooldowns(room)
+		s.repository.Save(room)
+	}
 }
 
-func (s *RoomService) refreshCooldowns() {
-	for _, room := range s.rooms {
-		for pi := range room.Players {
-			for si := range room.Players[pi].Spells {
-				spell := &room.Players[pi].Spells[si]
+func refreshRoomCooldowns(room *models.Room) {
+	now := time.Now()
 
-				if spell.IsReady || spell.CooldownEndTime.IsZero() {
-					spell.RemainingCooldown = 0
-					continue
-				}
+	for playerIndex := range room.Players {
+		player := &room.Players[playerIndex]
 
-				remaining := int(time.Until(spell.CooldownEndTime).Seconds())
+		for spellIndex := range player.Spells {
+			spell := &player.Spells[spellIndex]
 
-				if remaining <= 0 {
-					spell.IsReady = true
-					spell.RemainingCooldown = 0
-					spell.CooldownEndTime = time.Time{}
-				} else {
-					spell.RemainingCooldown = remaining
-				}
+			if spell.IsReady ||
+				spell.CooldownEndTime.IsZero() {
+				spell.RemainingCooldown = 0
+				continue
 			}
+
+			remaining := int(
+				spell.CooldownEndTime.Sub(now).Seconds(),
+			)
+
+			if remaining <= 0 {
+				spell.IsReady = true
+				spell.RemainingCooldown = 0
+				spell.CooldownEndTime = time.Time{}
+				continue
+			}
+
+			spell.RemainingCooldown = remaining
 		}
 	}
 }
@@ -140,6 +178,7 @@ func (s *RoomService) refreshCooldowns() {
 func (s *RoomService) StartCooldownUpdater() {
 	go func() {
 		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
 
 		for range ticker.C {
 			s.RefreshCooldowns()
@@ -155,27 +194,39 @@ func (s *RoomService) SyncFromChampSelect(
 		return false
 	}
 
-	players := make([]models.Player, 0, len(session.MyTeam))
+	players := make(
+		[]models.Player,
+		0,
+		len(session.MyTeam),
+	)
 
 	for _, member := range session.MyTeam {
 		player := models.Player{
 			GameName:           member.GameName,
 			TagLine:            member.TagLine,
 			ChampionId:         member.ChampionId,
+			Champion:           GetChampionName(member.ChampionId),
 			SummonerSpellHaste: constants.DefaultSummonerSpellHaste,
 			Spells: []models.SummonerSpell{
 				{
-					Name:         GetSpellName(member.Spell1Id),
-					IsReady:      true,
-					BaseCooldown: GetSpellCooldown(member.Spell1Id),
+					Name: GetSpellName(
+						member.Spell1Id,
+					),
+					IsReady: true,
+					BaseCooldown: GetSpellCooldown(
+						member.Spell1Id,
+					),
 				},
 				{
-					Name:         GetSpellName(member.Spell2Id),
-					IsReady:      true,
-					BaseCooldown: GetSpellCooldown(member.Spell2Id),
+					Name: GetSpellName(
+						member.Spell2Id,
+					),
+					IsReady: true,
+					BaseCooldown: GetSpellCooldown(
+						member.Spell2Id,
+					),
 				},
 			},
-			Champion: GetChampionName(member.ChampionId),
 		}
 
 		players = append(players, player)
@@ -191,7 +242,7 @@ func (s *RoomService) ReplacePlayers(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	room, exists := s.rooms[roomId]
+	room, exists := s.repository.Get(roomId)
 	if !exists {
 		return false
 	}
@@ -211,7 +262,7 @@ func (s *RoomService) ReplacePlayers(
 	}
 
 	room.Players = players
-	room.LastUpdated = time.Now()
+	s.saveRoom(room)
 
 	return true
 }
@@ -225,22 +276,33 @@ func (s *RoomService) ToggleSpellByRiotId(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	room, exists := s.rooms[roomId]
+	room, exists := s.repository.Get(roomId)
 	if !exists {
 		return false
 	}
 
-	player := FindPlayerByRiotId(room, gameName, tagLine)
+	player := FindPlayerByRiotId(
+		room,
+		gameName,
+		tagLine,
+	)
 	if player == nil {
 		return false
 	}
 
-	return TogglePlayerSpell(player, spellName)
+	if !TogglePlayerSpell(player, spellName) {
+		return false
+	}
+
+	s.saveRoom(room)
+
+	return true
 }
 
 func (s *RoomService) StartRoomCleanup() {
 	go func() {
 		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
 
 		for range ticker.C {
 			s.cleanupOldRooms()
@@ -252,12 +314,21 @@ func (s *RoomService) cleanupOldRooms() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	expirationTime := constants.RoomExpirationDuration
 	now := time.Now()
+	rooms := s.repository.GetAll()
 
-	for roomId, room := range s.rooms {
-		if now.Sub(room.LastUpdated) > expirationTime {
-			delete(s.rooms, roomId)
+	for _, room := range rooms {
+		if now.Sub(room.LastUpdated) >
+			constants.RoomExpirationDuration {
+			s.repository.Delete(room.Id)
 		}
 	}
+}
+func (s *RoomService) saveRoom(room *models.Room) {
+	if room == nil {
+		return
+	}
+
+	room.LastUpdated = time.Now()
+	s.repository.Save(room)
 }

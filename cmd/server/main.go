@@ -2,13 +2,16 @@ package main
 
 import (
 	"lol-timer/internal/handlers"
+	"lol-timer/internal/repositories"
 	"lol-timer/internal/services"
 	"lol-timer/internal/websocket"
 	"net/http"
 )
 
 func main() {
-	roomService := services.NewRoomService()
+	roomRepository := repositories.NewInMemoryRoomRepository()
+
+	roomService := services.NewRoomService(roomRepository)
 	roomService.StartCooldownUpdater()
 	roomService.StartRoomCleanup()
 

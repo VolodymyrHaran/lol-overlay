@@ -114,7 +114,7 @@ func (h *Hub) StartRoomUpdates(
 		ticker := time.NewTicker(time.Second)
 
 		for range ticker.C {
-			rooms := roomService.GetRooms()
+			rooms := roomService.GetRoomSnapshots()
 
 			for _, room := range rooms {
 				h.BroadcastJsonToRoom(room.Id, room)
