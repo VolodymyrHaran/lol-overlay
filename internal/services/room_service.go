@@ -1,6 +1,8 @@
 package services
 
 import (
+	"fmt"
+	"log"
 	"lol-timer/internal/constants"
 	"lol-timer/internal/models"
 	"lol-timer/internal/repositories"
@@ -23,31 +25,52 @@ func NewRoomService(
 
 func (s *RoomService) GetRoomSnapshot(
 	roomId string,
-) *models.Room {
-	room, exists := s.repository.Get(roomId)
-	if !exists {
-		return nil
+) (*models.Room, error) {
+	room, exists, err := s.repository.Get(roomId)
+	if err != nil {
+		return nil, fmt.Errorf("get room %q: %w", roomId, err)
 	}
 
-	return room
+	if !exists {
+		return nil, nil
+	}
+
+	return room, nil
 }
 
-func (s *RoomService) GetRoomSnapshots() []*models.Room {
-	return s.repository.GetAll()
+func (s *RoomService) GetRoomSnapshots() (
+	[]*models.Room,
+	error,
+) {
+	rooms, err := s.repository.GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("get all rooms: %w", err)
+	}
+
+	return rooms, nil
 }
 
 func (s *RoomService) CreateRoom(
 	roomId string,
-) *models.Room {
+) (*models.Room, error) {
 	if roomId == "" {
-		return nil
+		return nil, nil
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if room, exists := s.repository.Get(roomId); exists {
-		return room
+	existingRoom, exists, err := s.repository.Get(roomId)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"check existing room %q: %w",
+			roomId,
+			err,
+		)
+	}
+
+	if exists {
+		return existingRoom, nil
 	}
 
 	room := &models.Room{
@@ -55,21 +78,35 @@ func (s *RoomService) CreateRoom(
 		LastUpdated: time.Now(),
 	}
 
-	s.repository.Save(room)
+	if err := s.repository.Save(room); err != nil {
+		return nil, fmt.Errorf(
+			"save room %q: %w",
+			roomId,
+			err,
+		)
+	}
 
-	return room.Clone()
+	return room.Clone(), nil
 }
 
 func (s *RoomService) AddPlayer(
 	roomId string,
 	player models.Player,
-) bool {
+) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	room, exists := s.repository.Get(roomId)
+	room, exists, err := s.repository.Get(roomId)
+	if err != nil {
+		return false, fmt.Errorf(
+			"get room %q for adding player: %w",
+			roomId,
+			err,
+		)
+	}
+
 	if !exists {
-		return false
+		return false, nil
 	}
 
 	existingPlayer := FindPlayerByRiotId(
@@ -81,10 +118,12 @@ func (s *RoomService) AddPlayer(
 	if existingPlayer != nil {
 		existingPlayer.Champion = player.Champion
 		existingPlayer.ChampionId = player.ChampionId
-		room.LastUpdated = time.Now()
 
-		s.repository.Save(room)
-		return true
+		if err := s.saveRoom(room); err != nil {
+			return false, err
+		}
+
+		return true, nil
 	}
 
 	player.SummonerSpellHaste =
@@ -106,9 +145,12 @@ func (s *RoomService) AddPlayer(
 	}
 
 	room.Players = append(room.Players, player)
-	s.saveRoom(room)
 
-	return true
+	if err := s.saveRoom(room); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func FindPlayerByRiotId(
@@ -132,19 +174,38 @@ func FindPlayerByRiotId(
 	return nil
 }
 
-func (s *RoomService) RefreshCooldowns() {
+func (s *RoomService) RefreshCooldowns() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	rooms := s.repository.GetAll()
+	rooms, err := s.repository.GetAll()
+	if err != nil {
+		return fmt.Errorf(
+			"get rooms for cooldown refresh: %w",
+			err,
+		)
+	}
 
 	for _, room := range rooms {
 		refreshRoomCooldowns(room)
-		s.repository.Save(room)
+
+		if err := s.repository.Save(room); err != nil {
+			return fmt.Errorf(
+				"save room %q after cooldown refresh: %w",
+				room.Id,
+				err,
+			)
+		}
 	}
+
+	return nil
 }
 
 func refreshRoomCooldowns(room *models.Room) {
+	if room == nil {
+		return
+	}
+
 	now := time.Now()
 
 	for playerIndex := range room.Players {
@@ -181,7 +242,12 @@ func (s *RoomService) StartCooldownUpdater() {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			s.RefreshCooldowns()
+			if err := s.RefreshCooldowns(); err != nil {
+				log.Printf(
+					"refresh cooldowns error: %v",
+					err,
+				)
+			}
 		}
 	}()
 }
@@ -189,9 +255,9 @@ func (s *RoomService) StartCooldownUpdater() {
 func (s *RoomService) SyncFromChampSelect(
 	roomId string,
 	session *models.ChampSelectSession,
-) bool {
+) (bool, error) {
 	if roomId == "" || session == nil {
-		return false
+		return false, nil
 	}
 
 	players := make(
@@ -238,13 +304,21 @@ func (s *RoomService) SyncFromChampSelect(
 func (s *RoomService) ReplacePlayers(
 	roomId string,
 	players []models.Player,
-) bool {
+) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	room, exists := s.repository.Get(roomId)
+	room, exists, err := s.repository.Get(roomId)
+	if err != nil {
+		return false, fmt.Errorf(
+			"get room %q for replacing players: %w",
+			roomId,
+			err,
+		)
+	}
+
 	if !exists {
-		return false
+		return false, nil
 	}
 
 	for i := range players {
@@ -262,9 +336,12 @@ func (s *RoomService) ReplacePlayers(
 	}
 
 	room.Players = players
-	s.saveRoom(room)
 
-	return true
+	if err := s.saveRoom(room); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func (s *RoomService) ToggleSpellByRiotId(
@@ -272,13 +349,21 @@ func (s *RoomService) ToggleSpellByRiotId(
 	gameName string,
 	tagLine string,
 	spellName string,
-) bool {
+) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	room, exists := s.repository.Get(roomId)
+	room, exists, err := s.repository.Get(roomId)
+	if err != nil {
+		return false, fmt.Errorf(
+			"get room %q for toggling spell: %w",
+			roomId,
+			err,
+		)
+	}
+
 	if !exists {
-		return false
+		return false, nil
 	}
 
 	player := FindPlayerByRiotId(
@@ -287,16 +372,18 @@ func (s *RoomService) ToggleSpellByRiotId(
 		tagLine,
 	)
 	if player == nil {
-		return false
+		return false, nil
 	}
 
 	if !TogglePlayerSpell(player, spellName) {
-		return false
+		return false, nil
 	}
 
-	s.saveRoom(room)
+	if err := s.saveRoom(room); err != nil {
+		return false, err
+	}
 
-	return true
+	return true, nil
 }
 
 func (s *RoomService) StartRoomCleanup() {
@@ -305,30 +392,64 @@ func (s *RoomService) StartRoomCleanup() {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			s.cleanupOldRooms()
+			if err := s.cleanupOldRooms(); err != nil {
+				log.Printf(
+					"room cleanup error: %v",
+					err,
+				)
+			}
 		}
 	}()
 }
 
-func (s *RoomService) cleanupOldRooms() {
+func (s *RoomService) cleanupOldRooms() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	rooms, err := s.repository.GetAll()
+	if err != nil {
+		return fmt.Errorf(
+			"get rooms for cleanup: %w",
+			err,
+		)
+	}
+
 	now := time.Now()
-	rooms := s.repository.GetAll()
 
 	for _, room := range rooms {
-		if now.Sub(room.LastUpdated) >
+		if now.Sub(room.LastUpdated) <=
 			constants.RoomExpirationDuration {
-			s.repository.Delete(room.Id)
+			continue
+		}
+
+		if err := s.repository.Delete(room.Id); err != nil {
+			return fmt.Errorf(
+				"delete expired room %q: %w",
+				room.Id,
+				err,
+			)
 		}
 	}
+
+	return nil
 }
-func (s *RoomService) saveRoom(room *models.Room) {
+
+func (s *RoomService) saveRoom(
+	room *models.Room,
+) error {
 	if room == nil {
-		return
+		return nil
 	}
 
 	room.LastUpdated = time.Now()
-	s.repository.Save(room)
+
+	if err := s.repository.Save(room); err != nil {
+		return fmt.Errorf(
+			"save room %q: %w",
+			room.Id,
+			err,
+		)
+	}
+
+	return nil
 }

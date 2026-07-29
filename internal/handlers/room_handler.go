@@ -17,9 +17,21 @@ func NewRoomHandler(roomService *services.RoomService) *RoomHandler {
 	return &RoomHandler{roomService: roomService}
 }
 
-func (rh *RoomHandler) GetRoom(w http.ResponseWriter, r *http.Request) {
+func (rh *RoomHandler) GetRoom(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
 	roomId := getRoomIdFromPath(r)
-	room := rh.roomService.GetRoomSnapshot(roomId)
+
+	room, err := rh.roomService.GetRoomSnapshot(roomId)
+	if err != nil {
+		http.Error(
+			w,
+			"Failed to get room",
+			http.StatusInternalServerError,
+		)
+		return
+	}
 
 	if room == nil {
 		http.Error(w, "Room not found", http.StatusNotFound)
@@ -27,19 +39,32 @@ func (rh *RoomHandler) GetRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(room)
+
+	if err := json.NewEncoder(w).Encode(room); err != nil {
+		http.Error(
+			w,
+			"Failed to encode room",
+			http.StatusInternalServerError,
+		)
+	}
 }
 
-func (rh *RoomHandler) AddPlayer(w http.ResponseWriter, r *http.Request) {
+func (rh *RoomHandler) AddPlayer(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(
+			w,
+			"Method not allowed",
+			http.StatusMethodNotAllowed,
+		)
 		return
 	}
 
 	var request dto.CreatePlayerRequest
 
-	err := json.NewDecoder(r.Body).Decode(&request)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -50,10 +75,22 @@ func (rh *RoomHandler) AddPlayer(w http.ResponseWriter, r *http.Request) {
 		Champion: request.Champion,
 	}
 
-	ok := rh.roomService.AddPlayer(roomId, player)
+	ok, err := rh.roomService.AddPlayer(roomId, player)
+	if err != nil {
+		http.Error(
+			w,
+			"Failed to add player",
+			http.StatusInternalServerError,
+		)
+		return
+	}
 
 	if !ok {
-		http.Error(w, "Failed to add player", http.StatusNotFound)
+		http.Error(
+			w,
+			"Room not found",
+			http.StatusNotFound,
+		)
 		return
 	}
 
@@ -74,14 +111,27 @@ func (rh *RoomHandler) ToggleSpell(w http.ResponseWriter, r *http.Request) {
 	}
 
 	roomId := getRoomIdFromPath(r)
-	ok := rh.roomService.ToggleSpellByRiotId(
+	ok, err := rh.roomService.ToggleSpellByRiotId(
 		roomId,
 		request.GameName,
 		request.TagLine,
 		request.Spell,
 	)
+	if err != nil {
+		http.Error(
+			w,
+			"Failed to toggle spell",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
 	if !ok {
-		http.Error(w, "Player or spell not found", http.StatusNotFound)
+		http.Error(
+			w,
+			"Player or spell not found",
+			http.StatusNotFound,
+		)
 		return
 	}
 

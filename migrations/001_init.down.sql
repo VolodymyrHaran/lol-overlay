@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS summoner_spells;
+DROP TABLE IF EXISTS players;
+DROP TABLE IF EXISTS rooms;

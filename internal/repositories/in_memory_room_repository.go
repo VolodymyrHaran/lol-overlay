@@ -18,19 +18,24 @@ func NewInMemoryRoomRepository() *InMemoryRoomRepository {
 	}
 }
 
-func (r *InMemoryRoomRepository) Get(id string) (*models.Room, bool) {
+func (r *InMemoryRoomRepository) Get(
+	id string,
+) (*models.Room, bool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	room, exists := r.rooms[id]
 	if !exists {
-		return nil, false
+		return nil, false, nil
 	}
 
-	return room.Clone(), true
+	return room.Clone(), true, nil
 }
 
-func (r *InMemoryRoomRepository) GetAll() []*models.Room {
+func (r *InMemoryRoomRepository) GetAll() (
+	[]*models.Room,
+	error,
+) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -40,23 +45,31 @@ func (r *InMemoryRoomRepository) GetAll() []*models.Room {
 		rooms = append(rooms, room.Clone())
 	}
 
-	return rooms
+	return rooms, nil
 }
 
-func (r *InMemoryRoomRepository) Save(room *models.Room) {
+func (r *InMemoryRoomRepository) Save(
+	room *models.Room,
+) error {
 	if room == nil {
-		return
+		return nil
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.rooms[room.Id] = room.Clone()
+
+	return nil
 }
 
-func (r *InMemoryRoomRepository) Delete(id string) {
+func (r *InMemoryRoomRepository) Delete(
+	id string,
+) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	delete(r.rooms, id)
+
+	return nil
 }

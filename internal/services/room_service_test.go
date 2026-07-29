@@ -8,19 +8,77 @@ import (
 	"time"
 )
 
+func newTestRoomService(t *testing.T) *RoomService {
+	t.Helper()
+
+	repository := repositories.NewInMemoryRoomRepository()
+
+	return NewRoomService(repository)
+}
+
+func mustCreateRoom(
+	t *testing.T,
+	service *RoomService,
+	roomId string,
+) *models.Room {
+	t.Helper()
+
+	room, err := service.CreateRoom(roomId)
+	if err != nil {
+		t.Fatalf("create room %q: %v", roomId, err)
+	}
+
+	if room == nil {
+		t.Fatalf("expected room %q to exist", roomId)
+	}
+
+	return room
+}
+
+func mustGetRoom(
+	t *testing.T,
+	service *RoomService,
+	roomId string,
+) *models.Room {
+	t.Helper()
+
+	room, err := service.GetRoomSnapshot(roomId)
+	if err != nil {
+		t.Fatalf("get room %q: %v", roomId, err)
+	}
+
+	if room == nil {
+		t.Fatalf("expected room %q to exist", roomId)
+	}
+
+	return room
+}
+
+func mustGetRooms(
+	t *testing.T,
+	service *RoomService,
+) []*models.Room {
+	t.Helper()
+
+	rooms, err := service.GetRoomSnapshots()
+	if err != nil {
+		t.Fatalf("get room snapshots: %v", err)
+	}
+
+	return rooms
+}
+
 func TestCreateRoomCreatesRoom(t *testing.T) {
 	service := newTestRoomService(t)
 
-	room := service.CreateRoom("game-123-team-100")
+	const roomId = "game-123-team-100"
 
-	if room == nil {
-		t.Fatal("expected room to be created")
-	}
+	room := mustCreateRoom(t, service, roomId)
 
-	if room.Id != "game-123-team-100" {
+	if room.Id != roomId {
 		t.Errorf(
 			"expected room ID %q, got %q",
-			"game-123-team-100",
+			roomId,
 			room.Id,
 		)
 	}
@@ -34,8 +92,8 @@ func TestCreateRoomReturnsExistingRoom(t *testing.T) {
 	repository := repositories.NewInMemoryRoomRepository()
 	service := NewRoomService(repository)
 
-	firstRoom := service.CreateRoom("room-1")
-	secondRoom := service.CreateRoom("room-1")
+	firstRoom := mustCreateRoom(t, service, "room-1")
+	secondRoom := mustCreateRoom(t, service, "room-1")
 
 	if firstRoom == nil || secondRoom == nil {
 		t.Fatal("expected both room results to be non-nil")
@@ -53,7 +111,7 @@ func TestCreateRoomReturnsExistingRoom(t *testing.T) {
 		t.Error("expected independent room snapshots")
 	}
 
-	rooms := service.GetRoomSnapshots()
+	rooms := mustGetRooms(t, service)
 
 	if len(rooms) != 1 {
 		t.Errorf(
@@ -65,16 +123,22 @@ func TestCreateRoomReturnsExistingRoom(t *testing.T) {
 func TestGetRoomReturnsNilForUnknownRoom(t *testing.T) {
 	service := newTestRoomService(t)
 
-	room := service.GetRoomSnapshot("unknown")
+	room, err := service.GetRoomSnapshot("unknown")
+	if err != nil {
+		t.Fatalf("get unknown room: %v", err)
+	}
 
 	if room != nil {
-		t.Error("expected nil for unknown room")
+		t.Errorf(
+			"expected nil for unknown room, got %+v",
+			room,
+		)
 	}
 }
 
 func TestAddPlayerAddsPlayerWithDefaults(t *testing.T) {
 	service := newTestRoomService(t)
-	service.CreateRoom("room-1")
+	mustCreateRoom(t, service, "room-1")
 
 	player := models.Player{
 		GameName:   "Player",
@@ -83,12 +147,15 @@ func TestAddPlayerAddsPlayerWithDefaults(t *testing.T) {
 		ChampionId: 103,
 	}
 
-	ok := service.AddPlayer("room-1", player)
+	ok, err := service.AddPlayer("room-1", player)
+	if err != nil {
+		t.Fatalf("add player: %v", err)
+	}
 	if !ok {
 		t.Fatal("expected AddPlayer to succeed")
 	}
 
-	room := service.GetRoomSnapshot("room-1")
+	room := mustGetRoom(t, service, "room-1")
 
 	if len(room.Players) != 1 {
 		t.Fatalf("expected 1 player, got %d", len(room.Players))
@@ -126,8 +193,10 @@ func TestAddPlayerAddsPlayerWithDefaults(t *testing.T) {
 func TestAddPlayerReturnsFalseForUnknownRoom(t *testing.T) {
 	service := newTestRoomService(t)
 
-	ok := service.AddPlayer("unknown", models.Player{})
-
+	ok, err := service.AddPlayer("unknown", models.Player{})
+	if err != nil {
+		t.Fatalf("add player: %v", err)
+	}
 	if ok {
 		t.Error("expected AddPlayer to fail for unknown room")
 	}
@@ -154,7 +223,7 @@ func TestAddPlayerDoesNotCreateDuplicate(t *testing.T) {
 	service.AddPlayer("room-1", firstPlayer)
 	service.AddPlayer("room-1", secondPlayer)
 
-	room := service.GetRoomSnapshot("room-1")
+	room := mustGetRoom(t, service, "room-1")
 
 	if len(room.Players) != 1 {
 		t.Fatalf("expected 1 player, got %d", len(room.Players))
@@ -215,12 +284,16 @@ func TestReplacePlayersPreservesCooldownState(t *testing.T) {
 		},
 	}
 
-	ok := service.ReplacePlayers("room-1", newPlayers)
+	ok, err := service.ReplacePlayers("room-1", newPlayers)
+	if err != nil {
+		t.Fatalf("replace players: %v", err)
+	}
+
 	if !ok {
 		t.Fatal("expected ReplacePlayers to succeed")
 	}
 
-	room := service.GetRoomSnapshot("room-1")
+	room := mustGetRoom(t, service, "room-1")
 	spell := room.Players[0].FindSpell("Flash")
 
 	if spell == nil {
@@ -256,7 +329,7 @@ func TestReplacePlayersRemovesMissingPlayers(t *testing.T) {
 		{GameName: "Player2", TagLine: "EUW"},
 	})
 
-	room := service.GetRoomSnapshot("room-1")
+	room := mustGetRoom(t, service, "room-1")
 
 	if len(room.Players) != 1 {
 		t.Fatalf("expected 1 player, got %d", len(room.Players))
@@ -289,18 +362,21 @@ func TestToggleSpellByRiotId(t *testing.T) {
 		},
 	})
 
-	ok := service.ToggleSpellByRiotId(
+	ok, err := service.ToggleSpellByRiotId(
 		"room-1",
 		"Player",
 		"EUW",
 		"Flash",
 	)
+	if err != nil {
+		t.Fatalf("toggle spell: %v", err)
+	}
 
 	if !ok {
 		t.Fatal("expected toggle to succeed")
 	}
 
-	room := service.GetRoomSnapshot("room-1")
+	room := mustGetRoom(t, service, "room-1")
 	spell := room.Players[0].FindSpell("Flash")
 
 	if spell == nil {
@@ -320,13 +396,15 @@ func TestToggleSpellByRiotIdReturnsFalseForUnknownPlayer(t *testing.T) {
 	service := newTestRoomService(t)
 	service.CreateRoom("room-1")
 
-	ok := service.ToggleSpellByRiotId(
+	ok, err := service.ToggleSpellByRiotId(
 		"room-1",
 		"Unknown",
 		"EUW",
 		"Flash",
 	)
-
+	if err != nil {
+		t.Fatalf("toggle spell: %v", err)
+	}
 	if ok {
 		t.Error("expected false for unknown player")
 	}
@@ -354,7 +432,7 @@ func TestRefreshCooldownsMarksExpiredSpellReady(t *testing.T) {
 
 	service.RefreshCooldowns()
 
-	room := service.GetRoomSnapshot("room-1")
+	room := mustGetRoom(t, service, "room-1")
 	spell := room.Players[0].FindSpell("Flash")
 
 	if spell == nil {
@@ -407,12 +485,15 @@ func TestSyncFromChampSelectCreatesPlayersFromMyTeam(t *testing.T) {
 		},
 	}
 
-	ok := service.SyncFromChampSelect("room-1", session)
+	ok, err := service.SyncFromChampSelect("room-1", session)
+	if err != nil {
+		t.Fatalf("sync from champ select: %v", err)
+	}
 	if !ok {
 		t.Fatal("expected synchronization to succeed")
 	}
 
-	room := service.GetRoomSnapshot("room-1")
+	room := mustGetRoom(t, service, "room-1")
 	if room == nil {
 		t.Fatal("expected room to exist")
 	}
@@ -501,7 +582,10 @@ func TestSyncFromChampSelectReturnsFalseForNilSession(t *testing.T) {
 	service := newTestRoomService(t)
 	service.CreateRoom("room-1")
 
-	ok := service.SyncFromChampSelect("room-1", nil)
+	ok, err := service.SyncFromChampSelect("room-1", nil)
+	if err != nil {
+		t.Fatalf("sync from champ select: %v", err)
+	}
 
 	if ok {
 		t.Error("expected false for nil session")
@@ -513,7 +597,10 @@ func TestSyncFromChampSelectReturnsFalseForEmptyRoomId(t *testing.T) {
 
 	session := &models.ChampSelectSession{}
 
-	ok := service.SyncFromChampSelect("", session)
+	ok, err := service.SyncFromChampSelect("", session)
+	if err != nil {
+		t.Fatalf("sync from champ select: %v", err)
+	}
 
 	if ok {
 		t.Error("expected false for empty room ID")
@@ -532,16 +619,12 @@ func TestSyncFromChampSelectReturnsFalseForUnknownRoom(t *testing.T) {
 		},
 	}
 
-	ok := service.SyncFromChampSelect("unknown-room", session)
+	ok, err := service.SyncFromChampSelect("unknown-room", session)
+	if err != nil {
+		t.Fatalf("sync from champ select: %v", err)
+	}
 
 	if ok {
 		t.Error("expected false for unknown room")
 	}
-}
-
-func newTestRoomService(t *testing.T) *RoomService {
-	t.Helper()
-
-	repository := repositories.NewInMemoryRoomRepository()
-	return NewRoomService(repository)
 }

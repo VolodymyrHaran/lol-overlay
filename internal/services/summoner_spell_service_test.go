@@ -202,7 +202,10 @@ func TestGetRoomReturnsIndependentSnapshot(t *testing.T) {
 		},
 	})
 
-	snapshot := service.GetRoomSnapshot("room-1")
+	snapshot, err := service.GetRoomSnapshot("room-1")
+	if err != nil {
+		t.Fatalf("get room snapshot: %v", err)
+	}
 	if snapshot == nil {
 		t.Fatal("expected room snapshot")
 	}
@@ -211,26 +214,29 @@ func TestGetRoomReturnsIndependentSnapshot(t *testing.T) {
 	snapshot.Players[0].GameName = "ModifiedPlayer"
 	snapshot.Players[0].Spells[0].Name = "ModifiedSpell"
 
-	actual := service.GetRoomSnapshot("room-1")
-	if actual == nil {
+	room, err := service.GetRoomSnapshot("room-1")
+	if err != nil {
+		t.Fatalf("get room snapshot: %v", err)
+	}
+	if room == nil {
 		t.Fatal("expected room to exist")
 	}
 
-	if actual.Id != "room-1" {
-		t.Errorf("internal room ID was modified: %q", actual.Id)
+	if room.Id != "room-1" {
+		t.Errorf("internal room ID was modified: %q", room.Id)
 	}
 
-	if actual.Players[0].GameName != "Player" {
+	if room.Players[0].GameName != "Player" {
 		t.Errorf(
 			"internal player was modified: %q",
-			actual.Players[0].GameName,
+			room.Players[0].GameName,
 		)
 	}
 
-	if actual.Players[0].Spells[0].Name != "Flash" {
+	if room.Players[0].Spells[0].Name != "Flash" {
 		t.Errorf(
 			"internal spell was modified: %q",
-			actual.Players[0].Spells[0].Name,
+			room.Players[0].Spells[0].Name,
 		)
 	}
 }
