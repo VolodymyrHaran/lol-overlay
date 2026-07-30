@@ -1,10 +1,28 @@
 package repositories
 
-import "lol-timer/internal/models"
+import (
+	"context"
+
+	"lol-timer/internal/models"
+)
 
 type RoomRepository interface {
-	Get(id string) (*models.Room, bool, error)
-	GetAll() ([]*models.Room, error)
-	Save(room *models.Room) error
-	Delete(id string) error
+	Get(
+		ctx context.Context,
+		id string,
+	) (*models.Room, bool, error)
+
+	GetAll(
+		ctx context.Context,
+	) ([]*models.Room, error)
+
+	Save(
+		ctx context.Context,
+		room *models.Room,
+	) error
+
+	Delete(
+		ctx context.Context,
+		id string,
+	) error
 }

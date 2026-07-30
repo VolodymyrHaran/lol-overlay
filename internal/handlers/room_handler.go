@@ -23,7 +23,10 @@ func (rh *RoomHandler) GetRoom(
 ) {
 	roomId := getRoomIdFromPath(r)
 
-	room, err := rh.roomService.GetRoomSnapshot(roomId)
+	room, err := rh.roomService.GetRoomSnapshot(
+		r.Context(),
+		roomId,
+	)
 	if err != nil {
 		http.Error(
 			w,
@@ -75,7 +78,11 @@ func (rh *RoomHandler) AddPlayer(
 		Champion: request.Champion,
 	}
 
-	ok, err := rh.roomService.AddPlayer(roomId, player)
+	ok, err := rh.roomService.AddPlayer(
+		r.Context(),
+		roomId,
+		player,
+	)
 	if err != nil {
 		http.Error(
 			w,
@@ -112,6 +119,7 @@ func (rh *RoomHandler) ToggleSpell(w http.ResponseWriter, r *http.Request) {
 
 	roomId := getRoomIdFromPath(r)
 	ok, err := rh.roomService.ToggleSpellByRiotId(
+		r.Context(),
 		roomId,
 		request.GameName,
 		request.TagLine,

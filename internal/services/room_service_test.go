@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"lol-timer/internal/constants"
 	"lol-timer/internal/models"
 	"lol-timer/internal/repositories"
@@ -23,7 +24,7 @@ func mustCreateRoom(
 ) *models.Room {
 	t.Helper()
 
-	room, err := service.CreateRoom(roomId)
+	room, err := service.CreateRoom(testContext(), roomId)
 	if err != nil {
 		t.Fatalf("create room %q: %v", roomId, err)
 	}
@@ -42,7 +43,7 @@ func mustGetRoom(
 ) *models.Room {
 	t.Helper()
 
-	room, err := service.GetRoomSnapshot(roomId)
+	room, err := service.GetRoomSnapshot(testContext(), roomId)
 	if err != nil {
 		t.Fatalf("get room %q: %v", roomId, err)
 	}
@@ -60,7 +61,7 @@ func mustGetRooms(
 ) []*models.Room {
 	t.Helper()
 
-	rooms, err := service.GetRoomSnapshots()
+	rooms, err := service.GetRoomSnapshots(testContext())
 	if err != nil {
 		t.Fatalf("get room snapshots: %v", err)
 	}
@@ -123,7 +124,7 @@ func TestCreateRoomReturnsExistingRoom(t *testing.T) {
 func TestGetRoomReturnsNilForUnknownRoom(t *testing.T) {
 	service := newTestRoomService(t)
 
-	room, err := service.GetRoomSnapshot("unknown")
+	room, err := service.GetRoomSnapshot(testContext(), "unknown")
 	if err != nil {
 		t.Fatalf("get unknown room: %v", err)
 	}
@@ -147,7 +148,7 @@ func TestAddPlayerAddsPlayerWithDefaults(t *testing.T) {
 		ChampionId: 103,
 	}
 
-	ok, err := service.AddPlayer("room-1", player)
+	ok, err := service.AddPlayer(testContext(), "room-1", player)
 	if err != nil {
 		t.Fatalf("add player: %v", err)
 	}
@@ -193,7 +194,7 @@ func TestAddPlayerAddsPlayerWithDefaults(t *testing.T) {
 func TestAddPlayerReturnsFalseForUnknownRoom(t *testing.T) {
 	service := newTestRoomService(t)
 
-	ok, err := service.AddPlayer("unknown", models.Player{})
+	ok, err := service.AddPlayer(testContext(), "unknown", models.Player{})
 	if err != nil {
 		t.Fatalf("add player: %v", err)
 	}
@@ -204,7 +205,7 @@ func TestAddPlayerReturnsFalseForUnknownRoom(t *testing.T) {
 
 func TestAddPlayerDoesNotCreateDuplicate(t *testing.T) {
 	service := newTestRoomService(t)
-	service.CreateRoom("room-1")
+	service.CreateRoom(testContext(), "room-1")
 
 	firstPlayer := models.Player{
 		GameName:   "Player",
@@ -220,8 +221,8 @@ func TestAddPlayerDoesNotCreateDuplicate(t *testing.T) {
 		ChampionId: 222,
 	}
 
-	service.AddPlayer("room-1", firstPlayer)
-	service.AddPlayer("room-1", secondPlayer)
+	service.AddPlayer(testContext(), "room-1", firstPlayer)
+	service.AddPlayer(testContext(), "room-1", secondPlayer)
 
 	room := mustGetRoom(t, service, "room-1")
 
@@ -248,7 +249,7 @@ func TestAddPlayerDoesNotCreateDuplicate(t *testing.T) {
 
 func TestReplacePlayersPreservesCooldownState(t *testing.T) {
 	service := newTestRoomService(t)
-	service.CreateRoom("room-1")
+	service.CreateRoom(testContext(), "room-1")
 
 	cooldownEnd := time.Now().Add(120 * time.Second)
 
@@ -268,7 +269,7 @@ func TestReplacePlayersPreservesCooldownState(t *testing.T) {
 		},
 	}
 
-	service.ReplacePlayers("room-1", oldPlayers)
+	service.ReplacePlayers(testContext(), "room-1", oldPlayers)
 
 	newPlayers := []models.Player{
 		{
@@ -284,7 +285,7 @@ func TestReplacePlayersPreservesCooldownState(t *testing.T) {
 		},
 	}
 
-	ok, err := service.ReplacePlayers("room-1", newPlayers)
+	ok, err := service.ReplacePlayers(testContext(), "room-1", newPlayers)
 	if err != nil {
 		t.Fatalf("replace players: %v", err)
 	}
@@ -318,14 +319,14 @@ func TestReplacePlayersPreservesCooldownState(t *testing.T) {
 
 func TestReplacePlayersRemovesMissingPlayers(t *testing.T) {
 	service := newTestRoomService(t)
-	service.CreateRoom("room-1")
+	service.CreateRoom(testContext(), "room-1")
 
-	service.ReplacePlayers("room-1", []models.Player{
+	service.ReplacePlayers(testContext(), "room-1", []models.Player{
 		{GameName: "Player1", TagLine: "EUW"},
 		{GameName: "Player2", TagLine: "EUW"},
 	})
 
-	service.ReplacePlayers("room-1", []models.Player{
+	service.ReplacePlayers(testContext(), "room-1", []models.Player{
 		{GameName: "Player2", TagLine: "EUW"},
 	})
 
@@ -345,9 +346,9 @@ func TestReplacePlayersRemovesMissingPlayers(t *testing.T) {
 
 func TestToggleSpellByRiotId(t *testing.T) {
 	service := newTestRoomService(t)
-	service.CreateRoom("room-1")
+	service.CreateRoom(testContext(), "room-1")
 
-	service.ReplacePlayers("room-1", []models.Player{
+	service.ReplacePlayers(testContext(), "room-1", []models.Player{
 		{
 			GameName:           "Player",
 			TagLine:            "EUW",
@@ -363,6 +364,7 @@ func TestToggleSpellByRiotId(t *testing.T) {
 	})
 
 	ok, err := service.ToggleSpellByRiotId(
+		testContext(),
 		"room-1",
 		"Player",
 		"EUW",
@@ -394,9 +396,10 @@ func TestToggleSpellByRiotId(t *testing.T) {
 
 func TestToggleSpellByRiotIdReturnsFalseForUnknownPlayer(t *testing.T) {
 	service := newTestRoomService(t)
-	service.CreateRoom("room-1")
+	service.CreateRoom(testContext(), "room-1")
 
 	ok, err := service.ToggleSpellByRiotId(
+		testContext(),
 		"room-1",
 		"Unknown",
 		"EUW",
@@ -412,9 +415,9 @@ func TestToggleSpellByRiotIdReturnsFalseForUnknownPlayer(t *testing.T) {
 
 func TestRefreshCooldownsMarksExpiredSpellReady(t *testing.T) {
 	service := newTestRoomService(t)
-	service.CreateRoom("room-1")
+	service.CreateRoom(testContext(), "room-1")
 
-	service.ReplacePlayers("room-1", []models.Player{
+	service.ReplacePlayers(testContext(), "room-1", []models.Player{
 		{
 			GameName: "Player",
 			TagLine:  "EUW",
@@ -430,7 +433,7 @@ func TestRefreshCooldownsMarksExpiredSpellReady(t *testing.T) {
 		},
 	})
 
-	service.RefreshCooldowns()
+	service.RefreshCooldowns(testContext())
 
 	room := mustGetRoom(t, service, "room-1")
 	spell := room.Players[0].FindSpell("Flash")
@@ -456,7 +459,7 @@ func TestRefreshCooldownsMarksExpiredSpellReady(t *testing.T) {
 }
 func TestSyncFromChampSelectCreatesPlayersFromMyTeam(t *testing.T) {
 	service := newTestRoomService(t)
-	service.CreateRoom("room-1")
+	service.CreateRoom(testContext(), "room-1")
 
 	session := &models.ChampSelectSession{
 		GameId:            123,
@@ -485,7 +488,7 @@ func TestSyncFromChampSelectCreatesPlayersFromMyTeam(t *testing.T) {
 		},
 	}
 
-	ok, err := service.SyncFromChampSelect("room-1", session)
+	ok, err := service.SyncFromChampSelect(testContext(), "room-1", session)
 	if err != nil {
 		t.Fatalf("sync from champ select: %v", err)
 	}
@@ -580,9 +583,9 @@ func TestSyncFromChampSelectCreatesPlayersFromMyTeam(t *testing.T) {
 }
 func TestSyncFromChampSelectReturnsFalseForNilSession(t *testing.T) {
 	service := newTestRoomService(t)
-	service.CreateRoom("room-1")
+	service.CreateRoom(testContext(), "room-1")
 
-	ok, err := service.SyncFromChampSelect("room-1", nil)
+	ok, err := service.SyncFromChampSelect(testContext(), "room-1", nil)
 	if err != nil {
 		t.Fatalf("sync from champ select: %v", err)
 	}
@@ -597,7 +600,7 @@ func TestSyncFromChampSelectReturnsFalseForEmptyRoomId(t *testing.T) {
 
 	session := &models.ChampSelectSession{}
 
-	ok, err := service.SyncFromChampSelect("", session)
+	ok, err := service.SyncFromChampSelect(testContext(), "", session)
 	if err != nil {
 		t.Fatalf("sync from champ select: %v", err)
 	}
@@ -619,7 +622,7 @@ func TestSyncFromChampSelectReturnsFalseForUnknownRoom(t *testing.T) {
 		},
 	}
 
-	ok, err := service.SyncFromChampSelect("unknown-room", session)
+	ok, err := service.SyncFromChampSelect(testContext(), "unknown-room", session)
 	if err != nil {
 		t.Fatalf("sync from champ select: %v", err)
 	}
@@ -627,4 +630,8 @@ func TestSyncFromChampSelectReturnsFalseForUnknownRoom(t *testing.T) {
 	if ok {
 		t.Error("expected false for unknown room")
 	}
+}
+
+func testContext() context.Context {
+	return context.Background()
 }

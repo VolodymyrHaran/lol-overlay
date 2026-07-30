@@ -1,11 +1,13 @@
 package services
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"lol-timer/internal/models"
 	"net/http"
 	"os"
@@ -185,39 +187,56 @@ func (s *LolClientService) GetChampionName(championId int) string {
 }
 
 func (s *LolClientService) StartChampSelectSync(
+	ctx context.Context,
 	roomService *RoomService,
 ) {
 	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+
 		for {
-			phase, err := s.GetGameflowPhase()
-			if err != nil {
-				fmt.Println("LCU phase error:", err)
-				time.Sleep(2 * time.Second)
-				continue
-			}
+			select {
+			case <-ctx.Done():
+				return
 
-			fmt.Println("Current phase:", phase)
-
-			if phase == "ChampSelect" {
-				session, err := s.GetChampSelectSession()
-				if err != nil {
-					fmt.Println("ChampSelect session error:", err)
-					time.Sleep(2 * time.Second)
+			case <-ticker.C:
+				phase, err := s.GetGameflowPhase()
+				if err != nil || phase != "ChampSelect" {
 					continue
 				}
 
-				roomId := BuildRoomId(session)
-				fmt.Println("RoomId:", roomId)
+				session, err := s.GetChampSelectSession()
+				if err != nil {
+					continue
+				}
 
-				if roomId != "" {
-					roomService.CreateRoom(roomId)
-					roomService.SyncFromChampSelect(roomId, session)
+				roomID := BuildRoomId(session)
+				if roomID == "" {
+					continue
+				}
 
-					fmt.Println("Synced players:", len(session.MyTeam))
+				if _, err := roomService.CreateRoom(
+					ctx,
+					roomID,
+				); err != nil {
+					log.Printf(
+						"create room from champ select: %v",
+						err,
+					)
+					continue
+				}
+
+				if _, err := roomService.SyncFromChampSelect(
+					ctx,
+					roomID,
+					session,
+				); err != nil {
+					log.Printf(
+						"sync champ select: %v",
+						err,
+					)
 				}
 			}
-
-			time.Sleep(2 * time.Second)
 		}
 	}()
 }

@@ -1,8 +1,10 @@
 package repositories
 
 import (
-	"lol-timer/internal/models"
+	"context"
 	"sync"
+
+	"lol-timer/internal/models"
 )
 
 type InMemoryRoomRepository struct {
@@ -19,8 +21,13 @@ func NewInMemoryRoomRepository() *InMemoryRoomRepository {
 }
 
 func (r *InMemoryRoomRepository) Get(
+	ctx context.Context,
 	id string,
 ) (*models.Room, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -32,10 +39,13 @@ func (r *InMemoryRoomRepository) Get(
 	return room.Clone(), true, nil
 }
 
-func (r *InMemoryRoomRepository) GetAll() (
-	[]*models.Room,
-	error,
-) {
+func (r *InMemoryRoomRepository) GetAll(
+	ctx context.Context,
+) ([]*models.Room, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -49,8 +59,13 @@ func (r *InMemoryRoomRepository) GetAll() (
 }
 
 func (r *InMemoryRoomRepository) Save(
+	ctx context.Context,
 	room *models.Room,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	if room == nil {
 		return nil
 	}
@@ -64,8 +79,13 @@ func (r *InMemoryRoomRepository) Save(
 }
 
 func (r *InMemoryRoomRepository) Delete(
+	ctx context.Context,
 	id string,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

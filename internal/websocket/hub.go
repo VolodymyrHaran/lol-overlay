@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"lol-timer/internal/services"
@@ -109,20 +110,35 @@ func (h *Hub) BroadcastJsonToRoom(roomId string, data any) {
 }
 
 func (h *Hub) StartRoomUpdates(
+	ctx context.Context,
 	roomService *services.RoomService,
 ) {
 	go func() {
 		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
 
-		for range ticker.C {
-			rooms, err := roomService.GetRoomSnapshots()
-			if err != nil {
-				log.Printf("get room snapshots for websocket: %v", err)
-				continue
-			}
+		for {
+			select {
+			case <-ctx.Done():
+				return
 
-			for _, room := range rooms {
-				h.BroadcastJsonToRoom(room.Id, room)
+			case <-ticker.C:
+				rooms, err := roomService.GetRoomSnapshots(ctx)
+				if err != nil {
+					if ctx.Err() != nil {
+						return
+					}
+
+					log.Printf(
+						"get room snapshots for websocket: %v",
+						err,
+					)
+					continue
+				}
+
+				for _, room := range rooms {
+					h.BroadcastJsonToRoom(room.Id, room)
+				}
 			}
 		}
 	}()

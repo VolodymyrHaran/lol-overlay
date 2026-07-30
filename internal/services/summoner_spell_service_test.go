@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"lol-timer/internal/models"
 	"lol-timer/internal/repositories"
 	"testing"
@@ -187,9 +188,9 @@ func TestGetRoomReturnsIndependentSnapshot(t *testing.T) {
 	repo := repositories.NewInMemoryRoomRepository()
 	service := NewRoomService(repo)
 
-	service.CreateRoom("room-1")
+	service.CreateRoom(context.Background(), "room-1")
 
-	service.ReplacePlayers("room-1", []models.Player{
+	service.ReplacePlayers(context.Background(), "room-1", []models.Player{
 		{
 			GameName: "Player",
 			TagLine:  "EUW",
@@ -202,7 +203,7 @@ func TestGetRoomReturnsIndependentSnapshot(t *testing.T) {
 		},
 	})
 
-	snapshot, err := service.GetRoomSnapshot("room-1")
+	snapshot, err := service.GetRoomSnapshot(context.Background(), "room-1")
 	if err != nil {
 		t.Fatalf("get room snapshot: %v", err)
 	}
@@ -214,7 +215,7 @@ func TestGetRoomReturnsIndependentSnapshot(t *testing.T) {
 	snapshot.Players[0].GameName = "ModifiedPlayer"
 	snapshot.Players[0].Spells[0].Name = "ModifiedSpell"
 
-	room, err := service.GetRoomSnapshot("room-1")
+	room, err := service.GetRoomSnapshot(context.Background(), "room-1")
 	if err != nil {
 		t.Fatalf("get room snapshot: %v", err)
 	}
