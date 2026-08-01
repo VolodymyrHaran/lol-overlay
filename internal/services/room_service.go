@@ -31,7 +31,11 @@ func (s *RoomService) GetRoomSnapshot(
 ) (*models.Room, error) {
 	room, exists, err := s.repository.Get(ctx, roomID)
 	if err != nil {
-		return nil, fmt.Errorf("get room %q: %w", roomID, err)
+		return nil, fmt.Errorf(
+			"get room %q: %w",
+			roomID,
+			err,
+		)
 	}
 
 	if !exists {
