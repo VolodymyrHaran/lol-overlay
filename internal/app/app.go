@@ -20,7 +20,8 @@ type App struct {
 	DB    *database.Postgres
 	Redis *cache.Redis
 
-	Logger *slog.Logger
+	Logger        *slog.Logger
+	HealthHandler *handlers.HealthHandler
 
 	RoomRepository *roomrepo.RoomRepository
 	RoomService    *services.RoomService

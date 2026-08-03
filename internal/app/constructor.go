@@ -30,7 +30,6 @@ func New() (*App, error) {
 	slog.SetDefault(log)
 
 	metrics.Register()
-	
 
 	db, err := database.Connect(
 		context.Background(),
@@ -71,6 +70,11 @@ func New() (*App, error) {
 
 	roomHandler := handlers.NewRoomHandler(roomService)
 
+	healthHandler := handlers.NewHealthHandler(
+		db,
+		redisClient,
+	)
+
 	hub := websocket.NewHub()
 
 	server := &http.Server{
@@ -87,7 +91,8 @@ func New() (*App, error) {
 		DB:    db,
 		Redis: redisClient,
 
-		Logger: log,
+		Logger:        log,
+		HealthHandler: healthHandler,
 
 		RoomRepository: postgresRepository,
 		RoomService:    roomService,

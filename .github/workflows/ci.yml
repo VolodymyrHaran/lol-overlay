@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+
+        env:
+          POSTGRES_USER: lol_timer
+          POSTGRES_PASSWORD: lol_timer
+          POSTGRES_DB: lol_timer
+
+        ports:
+          - 5432:5432
+
+        options: >-
+          --health-cmd="pg_isready -U lol_timer -d lol_timer"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      redis:
+        image: redis:8
+
+        ports:
+          - 6379:6379
+
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      DATABASE_URL: postgres://lol_timer:lol_timer@localhost:5432/lol_timer?sslmode=disable
+      REDIS_ADDRESS: localhost:6379
+      REDIS_PASSWORD:
+      REDIS_DATABASE: 0
+      ROOM_CACHE_TTL: 10m
+      HTTP_ADDRESS: :8080
+      LOG_LEVEL: info
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Check formatting
+        run: |
+          if [ "$(gofmt -l . | wc -l)" -gt 0 ]; then
+            echo "The following files are not formatted:"
+            gofmt -l .
+            exit 1
+          fi
+
+      - name: Go Vet
+        run: go vet ./...
+
+      - name: Run Tests
+        run: go test ./... -race
+
+      - name: Build
+        run: go build ./...

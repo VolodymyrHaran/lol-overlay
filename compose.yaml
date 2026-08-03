@@ -27,6 +27,19 @@ services:
 
       redis:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "--spider",
+          "http://localhost:8080/health"
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
   postgres:
     image: postgres:17
     container_name: lol-timer-postgres

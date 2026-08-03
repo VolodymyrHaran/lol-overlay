@@ -29,6 +29,16 @@ func (a *App) Run(ctx context.Context) error {
 		a.RoomHandler.HandleRooms,
 	)
 
+	mux.HandleFunc(
+		"/health",
+		a.HealthHandler.Health,
+	)
+
+	mux.HandleFunc(
+		"/ready",
+		a.HealthHandler.Ready,
+	)
+
 	mux.Handle(
 		"/metrics",
 		promhttp.Handler(),
