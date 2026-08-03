@@ -1,90 +1,90 @@
 # LoL Timer
 
-A backend service for tracking League of Legends summoner spell cooldowns in real time.
+Real-time League of Legends summoner spell tracker built with Go.
 
-The application automatically synchronizes the current Champion Select session through the League Client API (LCU), creates game rooms, stores players and their summoner spells, broadcasts updates through WebSocket, and persists data in PostgreSQL with Redis caching.
-
-LoL Timer is a production-oriented Go backend project demonstrating clean architecture, repository pattern, Redis caching, PostgreSQL persistence, WebSockets, dependency injection, graceful shutdown, structured logging, and comprehensive testing while tracking League of Legends summoner spell cooldowns in real time.
+The application synchronizes with the League Client (LCU), tracks enemy summoner spell cooldowns, stores room state in PostgreSQL, caches data in Redis, and exposes Prometheus metrics with Grafana dashboards.
 
 ---
 
 ## Features
 
-- Champion Select synchronization via League Client API
-- Automatic room creation
-- Automatic player synchronization
-- Real-time spell cooldown tracking
-- WebSocket updates
+- Real-time cooldown tracking
+- Automatic Champion Select synchronization
 - REST API
+- WebSocket updates
 - PostgreSQL persistence
-- Redis cache (Cache-Aside pattern)
-- Repository Pattern
-- Dependency Injection
-- Graceful Shutdown
-- Structured logging (slog)
-- Docker support
-- Unit tests
-- Integration tests
-- Context propagation
-- Automatic room cleanup
-
----
-
-## Tech Stack
-
-### Language
-
-- Go 1.25+
-
-### Database
-
-- PostgreSQL
-
-### Cache
-
-- Redis
-
-### API
-
-- REST
-- WebSocket
-
-### Infrastructure
-
-- Docker
+- Redis caching
+- Prometheus metrics
+- Grafana dashboard
+- Swagger API documentation
 - Docker Compose
-
-### Architecture
-
-- Repository Pattern
-- Cached Repository Decorator
-- Dependency Injection
-- Context propagation
-
-### Testing
-
-- Unit Tests
-- Integration Tests
-- Race Detector
+- Health & Readiness endpoints
+- GitHub Actions CI
+- Unit tests
+- Race detector support
 
 ---
 
 ## Architecture
 
 ```
-                    HTTP
-                      │
-                RoomHandler
-                      │
-                RoomService
-                      │
-             RoomRepository
-                      │
-      CachedRoomRepository
-          │            │
-          │            │
-      Redis Cache   PostgreSQL
+                   League Client (LCU)
+                           │
+                           ▼
+                  Champion Select Sync
+                           │
+                           ▼
+                     Room Service
+                           │
+           ┌───────────────┴───────────────┐
+           ▼                               ▼
+     Redis Cache                    PostgreSQL
+           │                               │
+           └───────────────┬───────────────┘
+                           ▼
+                     REST API
+                           │
+                           ▼
+                      WebSocket
+                           │
+                           ▼
+                     React Frontend
 ```
+
+---
+
+## Tech Stack
+
+### Backend
+
+- Go 1.26
+- net/http
+- WebSocket
+- PostgreSQL
+- Redis
+
+### Frontend
+
+- React
+- TypeScript
+- TailwindCSS
+
+### Infrastructure
+
+- Docker
+- Docker Compose
+- Prometheus
+- Grafana
+
+### Documentation
+
+- Swagger / OpenAPI
+
+### Quality
+
+- GitHub Actions
+- Unit Tests
+- Race Tests
 
 ---
 
@@ -98,118 +98,144 @@ internal/
     app/
     cache/
     config/
-    constants/
     database/
     dto/
     handlers/
     logger/
-    middleware/
     metrics/
+    middleware/
     models/
     repositories/
-        postgres/
     services/
     websocket/
 
-migrations/
-docker/
+docs/
+
+monitoring/
+
+frontend/
 ```
 
 ---
 
-## Running
+## API
 
-### Clone
+### Health
 
-```bash
-git clone https://github.com/<username>/lol-timer.git
-
-cd lol-timer
+```
+GET /health
 ```
 
-### Environment
+### Readiness
 
-Create `.env`
-
-```env
-DATABASE_URL=postgres://lol_timer:lol_timer_password@localhost:5432/lol_timer?sslmode=disable
-
-POSTGRES_USER=lol_timer
-POSTGRES_PASSWORD=lol_timer_password
-POSTGRES_DB=lol_timer
-POSTGRES_PORT=5432
-
-REDIS_ADDRESS=localhost:6379
-REDIS_PASSWORD=
-REDIS_DATABASE=0
-ROOM_CACHE_TTL=5m
-
-HTTP_ADDRESS=:8080
-
-LOG_LEVEL=debug
+```
+GET /ready
 ```
 
----
-
-### Start containers
-
-```bash
-docker compose up -d
-```
-
----
-
-### Run migrations
-
-```bash
-go run ./cmd/migrate
-```
-
----
-
-### Run server
-
-```bash
-go run ./cmd/server
-```
-
----
-
-## REST API
-
-### Get Room
+### Room
 
 ```
 GET /rooms/{roomId}
 ```
 
----
+### Add player
 
-### Toggle Spell
+```
+POST /rooms/{roomId}/players
+```
+
+### Toggle spell
 
 ```
 POST /rooms/{roomId}/spells/toggle
 ```
 
-Request
+### Metrics
 
-```json
-{
-  "gameName": "Player",
-  "tagLine": "EUW",
-  "spell": "Flash"
-}
+```
+GET /metrics
+```
+
+### Swagger
+
+```
+GET /swagger/index.html
 ```
 
 ---
 
-### WebSocket
+## Monitoring
 
-```
-ws://localhost:8080/ws?roomId=<roomId>
+Prometheus metrics include
+
+- HTTP requests
+- HTTP latency
+- Active rooms
+- Redis cache hits
+- Redis cache misses
+- Repository operations
+- WebSocket connections
+- Go runtime metrics
+
+Grafana dashboard includes
+
+- Active rooms
+- WebSocket connections
+- Cache hit ratio
+- HTTP requests/sec
+- HTTP latency
+- Repository operations
+- Memory usage
+- CPU usage
+- Goroutines
+
+---
+
+## Running locally
+
+Clone repository
+
+```bash
+git clone https://github.com/YOUR_USERNAME/lol-timer.git
+
+cd lol-timer
 ```
 
-Clients automatically receive room updates whenever player state changes.
+Create environment file
+
+```env
+DATABASE_URL=postgres://lol_timer:password@localhost:5432/lol_timer?sslmode=disable
+
+REDIS_ADDRESS=localhost:6379
+
+REDIS_PASSWORD=
+
+REDIS_DATABASE=0
+
+ROOM_CACHE_TTL=10m
+
+HTTP_ADDRESS=:8080
+
+LOG_LEVEL=info
+```
+
+Start infrastructure
+
+```bash
+docker compose up -d
+```
+
+Run application
+
+```bash
+go run ./cmd/server
+```
+
+or
+
+```bash
+docker compose up --build
+```
 
 ---
 
@@ -221,88 +247,67 @@ Run all tests
 go test ./...
 ```
 
-Run race detector
+Race detector
 
 ```bash
 go test -race ./...
 ```
 
-Run integration tests
+Format
 
 ```bash
-go test ./internal/repositories/...
+go fmt ./...
+```
+
+Vet
+
+```bash
+go vet ./...
 ```
 
 ---
 
-## Redis Cache
+## CI
 
-The application uses the Cache-Aside pattern.
+Every push automatically runs
+
+- gofmt
+- go vet
+- go test
+- go test -race
+- build verification
+
+---
+
+## Documentation
+
+Swagger UI
 
 ```
-Request
-    │
-    ▼
-Redis Cache
-    │
- Cache Miss
-    │
-    ▼
-PostgreSQL
-    │
-    ▼
-Redis Update
-    │
-    ▼
-Response
+http://localhost:8080/swagger/index.html
+```
+
+Prometheus
+
+```
+http://localhost:9090
+```
+
+Grafana
+
+```
+http://localhost:3000
 ```
 
 ---
 
-## Logging
+## Roadmap
 
-The application uses:
-
-- slog
-- Recovery middleware
-- HTTP request logging
-
-Every request logs:
-
-- method
-- path
-- status
-- duration
-- remote address
-- user agent
-
----
-
-## Current Status
-
-Implemented
-
-- PostgreSQL persistence
-- Redis cache
-- Champion Select synchronization
-- WebSocket broadcasting
-- REST API
-- Repository Pattern
-- Cached Repository
-- Graceful Shutdown
-- Context propagation
-- Structured logging
-- Docker support
-- Unit tests
-- Integration tests
-
-Planned
-
-- Prometheus
-- Grafana
-- gRPC API
-- NATS / RabbitMQ
+- Automatic room creation
+- Automatic room cleanup on game end
+- Match history
+- Improved frontend
 - Authentication
-- OpenAPI / Swagger
+- Spectator mode
 
 ---
