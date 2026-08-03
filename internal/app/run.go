@@ -11,6 +11,9 @@ import (
 	"lol-timer/internal/services"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
+
+	_ "lol-timer/docs"
 )
 
 func (a *App) Run(ctx context.Context) error {
@@ -42,6 +45,13 @@ func (a *App) Run(ctx context.Context) error {
 	mux.Handle(
 		"/metrics",
 		promhttp.Handler(),
+	)
+
+	mux.Handle(
+		"/swagger/",
+		httpSwagger.Handler(
+			httpSwagger.URL("/swagger/doc.json"),
+		),
 	)
 
 	mux.HandleFunc(

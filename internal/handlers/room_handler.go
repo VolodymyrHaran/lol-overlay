@@ -17,6 +17,17 @@ func NewRoomHandler(roomService *services.RoomService) *RoomHandler {
 	return &RoomHandler{roomService: roomService}
 }
 
+// GetRoom godoc
+//
+// @Summary      Get room
+// @Description  Returns a room with its players and summoner spell cooldowns.
+// @Tags         rooms
+// @Produce      json
+// @Param        roomId  path      string  true  "Room ID"
+// @Success      200     {object}  models.Room
+// @Failure      404     {string}  string
+// @Failure      500     {string}  string
+// @Router       /rooms/{roomId} [get]
 func (rh *RoomHandler) GetRoom(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -52,6 +63,21 @@ func (rh *RoomHandler) GetRoom(
 	}
 }
 
+// AddPlayer godoc
+//
+// @Summary      Add player
+// @Description  Adds a player to an existing room.
+// @Tags         rooms
+// @Accept       json
+// @Produce      json
+// @Param        roomId  path  string                   true  "Room ID"
+// @Param        request body  dto.CreatePlayerRequest  true  "Player data"
+// @Success      201
+// @Failure      400  {string}  string
+// @Failure      404  {string}  string
+// @Failure      405  {string}  string
+// @Failure      500  {string}  string
+// @Router       /rooms/{roomId}/players [post]
 func (rh *RoomHandler) AddPlayer(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -104,6 +130,21 @@ func (rh *RoomHandler) AddPlayer(
 	w.WriteHeader(http.StatusCreated)
 }
 
+// ToggleSpell godoc
+//
+// @Summary      Toggle summoner spell
+// @Description  Starts a cooldown for a ready spell or resets an active cooldown.
+// @Tags         rooms
+// @Accept       json
+// @Produce      json
+// @Param        roomId  path  string                  true  "Room ID"
+// @Param        request body  dto.ToggleSpellRequest  true  "Spell toggle data"
+// @Success      200
+// @Failure      400  {string}  string
+// @Failure      404  {string}  string
+// @Failure      405  {string}  string
+// @Failure      500  {string}  string
+// @Router       /rooms/{roomId}/spells/toggle [post]
 func (rh *RoomHandler) ToggleSpell(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

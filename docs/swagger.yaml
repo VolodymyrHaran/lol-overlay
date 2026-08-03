@@ -1,0 +1,239 @@
+basePath: /
+definitions:
+  dto.CreatePlayerRequest:
+    properties:
+      champion:
+        example: Ahri
+        type: string
+    type: object
+  dto.ToggleSpellRequest:
+    properties:
+      gameName:
+        example: PlayerOne
+        type: string
+      spell:
+        example: Flash
+        type: string
+      tagLine:
+        example: EUW
+        type: string
+    type: object
+  handlers.HealthResponse:
+    properties:
+      status:
+        example: ok
+        type: string
+    type: object
+  handlers.ReadinessResponse:
+    properties:
+      postgres:
+        example: ok
+        type: string
+      redis:
+        example: ok
+        type: string
+      status:
+        example: ok
+        type: string
+    type: object
+  models.Player:
+    properties:
+      champion:
+        type: string
+      championId:
+        type: integer
+      gameName:
+        type: string
+      spells:
+        items:
+          $ref: '#/definitions/models.SummonerSpell'
+        type: array
+      summonerSpellHaste:
+        type: integer
+      tagLine:
+        type: string
+    type: object
+  models.Room:
+    properties:
+      id:
+        type: string
+      lastUpdated:
+        type: string
+      players:
+        items:
+          $ref: '#/definitions/models.Player'
+        type: array
+    type: object
+  models.SummonerSpell:
+    properties:
+      baseCooldown:
+        type: integer
+      cooldownEndTime:
+        type: string
+      isReady:
+        type: boolean
+      name:
+        type: string
+      remainingCooldown:
+        type: integer
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: |-
+    API for tracking League of Legends summoner spell cooldowns.
+    Rooms are synchronized with the League Client and updated in real time.
+    PostgreSQL is used for persistence and Redis for caching.
+  title: LoL Timer API
+  version: "1.0"
+paths:
+  /health:
+    get:
+      description: Returns OK when the application process is running.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.HealthResponse'
+        "405":
+          description: Method Not Allowed
+          schema:
+            type: string
+      summary: Health check
+      tags:
+      - health
+  /ready:
+    get:
+      description: Checks whether PostgreSQL and Redis are available.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.ReadinessResponse'
+        "405":
+          description: Method Not Allowed
+          schema:
+            type: string
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handlers.ReadinessResponse'
+      summary: Readiness check
+      tags:
+      - health
+  /rooms/{roomId}:
+    get:
+      description: Returns a room with its players and summoner spell cooldowns.
+      parameters:
+      - description: Room ID
+        in: path
+        name: roomId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Room'
+        "404":
+          description: Not Found
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      summary: Get room
+      tags:
+      - rooms
+  /rooms/{roomId}/players:
+    post:
+      consumes:
+      - application/json
+      description: Adds a player to an existing room.
+      parameters:
+      - description: Room ID
+        in: path
+        name: roomId
+        required: true
+        type: string
+      - description: Player data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreatePlayerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            type: string
+        "405":
+          description: Method Not Allowed
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      summary: Add player
+      tags:
+      - rooms
+  /rooms/{roomId}/spells/toggle:
+    post:
+      consumes:
+      - application/json
+      description: Starts a cooldown for a ready spell or resets an active cooldown.
+      parameters:
+      - description: Room ID
+        in: path
+        name: roomId
+        required: true
+        type: string
+      - description: Spell toggle data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.ToggleSpellRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            type: string
+        "405":
+          description: Method Not Allowed
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      summary: Toggle summoner spell
+      tags:
+      - rooms
+schemes:
+- http
+swagger: "2.0"

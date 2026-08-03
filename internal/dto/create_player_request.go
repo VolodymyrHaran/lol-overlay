@@ -1,5 +1,5 @@
 package dto
 
 type CreatePlayerRequest struct {
-	Champion string `json:"champion"`
+	Champion string `json:"champion" example:"Ahri"`
 }

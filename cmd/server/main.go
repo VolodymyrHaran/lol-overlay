@@ -12,6 +12,16 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// @title           LoL Timer API
+// @version         1.0
+// @description     API for tracking League of Legends summoner spell cooldowns.
+// @description     Rooms are synchronized with the League Client and updated in real time.
+// @description     PostgreSQL is used for persistence and Redis for caching.
+//
+// @host      localhost:8080
+// @BasePath  /
+//
+// @schemes http
 func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println(
