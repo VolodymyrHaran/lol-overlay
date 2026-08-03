@@ -201,7 +201,10 @@ func (s *RoomService) RefreshCooldowns(
 			return err
 		}
 
-		refreshRoomCooldowns(room)
+		changed := refreshRoomCooldowns(room)
+		if !changed {
+			continue
+		}
 
 		if err := s.repository.Save(ctx, room); err != nil {
 			return fmt.Errorf(
@@ -215,12 +218,13 @@ func (s *RoomService) RefreshCooldowns(
 	return nil
 }
 
-func refreshRoomCooldowns(room *models.Room) {
+func refreshRoomCooldowns(room *models.Room) bool {
 	if room == nil {
-		return
+		return false
 	}
 
 	now := time.Now()
+	changed := false
 
 	for playerIndex := range room.Players {
 		player := &room.Players[playerIndex]
@@ -228,9 +232,12 @@ func refreshRoomCooldowns(room *models.Room) {
 		for spellIndex := range player.Spells {
 			spell := &player.Spells[spellIndex]
 
-			if spell.IsReady ||
-				spell.CooldownEndTime.IsZero() {
-				spell.RemainingCooldown = 0
+			if spell.IsReady || spell.CooldownEndTime.IsZero() {
+				if spell.RemainingCooldown != 0 {
+					spell.RemainingCooldown = 0
+					changed = true
+				}
+
 				continue
 			}
 
@@ -242,12 +249,18 @@ func refreshRoomCooldowns(room *models.Room) {
 				spell.IsReady = true
 				spell.RemainingCooldown = 0
 				spell.CooldownEndTime = time.Time{}
+				changed = true
 				continue
 			}
 
-			spell.RemainingCooldown = remaining
+			if spell.RemainingCooldown != remaining {
+				spell.RemainingCooldown = remaining
+				changed = true
+			}
 		}
 	}
+
+	return changed
 }
 
 func (s *RoomService) StartCooldownUpdater(

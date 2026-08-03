@@ -12,6 +12,7 @@ import (
 	"lol-timer/internal/database"
 	"lol-timer/internal/handlers"
 	"lol-timer/internal/logger"
+	"lol-timer/internal/metrics"
 	"lol-timer/internal/repositories"
 	roomrepo "lol-timer/internal/repositories/postgres/room"
 	"lol-timer/internal/services"
@@ -27,6 +28,9 @@ func New() (*App, error) {
 
 	log := logger.New(cfg.LogLevel)
 	slog.SetDefault(log)
+
+	metrics.Register()
+	
 
 	db, err := database.Connect(
 		context.Background(),

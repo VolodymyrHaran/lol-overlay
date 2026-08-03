@@ -3,10 +3,13 @@ package cache
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"lol-timer/internal/models"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type RedisRoomCache struct {
@@ -17,11 +20,11 @@ type RedisRoomCache struct {
 var _ RoomCache = (*RedisRoomCache)(nil)
 
 func NewRedisRoomCache(
-	redis *Redis,
+	redisClient *Redis,
 	ttl time.Duration,
 ) *RedisRoomCache {
 	return &RedisRoomCache{
-		redis: redis,
+		redis: redisClient,
 		ttl:   ttl,
 	}
 }
@@ -34,28 +37,31 @@ func (c *RedisRoomCache) Get(
 	ctx context.Context,
 	roomID string,
 ) (*models.Room, bool, error) {
-
 	value, err := c.redis.Client.Get(
 		ctx,
 		roomKey(roomID),
 	).Result()
 
 	if err != nil {
-
-		if err.Error() == "redis: nil" {
+		if errors.Is(err, redis.Nil) {
 			return nil, false, nil
 		}
 
-		return nil, false, err
+		return nil, false, fmt.Errorf(
+			"get room %q from Redis: %w",
+			roomID,
+			err,
+		)
 	}
 
 	var room models.Room
 
-	if err := json.Unmarshal(
-		[]byte(value),
-		&room,
-	); err != nil {
-		return nil, false, err
+	if err := json.Unmarshal([]byte(value), &room); err != nil {
+		return nil, false, fmt.Errorf(
+			"unmarshal cached room %q: %w",
+			roomID,
+			err,
+		)
 	}
 
 	return &room, true, nil
@@ -65,7 +71,6 @@ func (c *RedisRoomCache) Set(
 	ctx context.Context,
 	room *models.Room,
 ) error {
-
 	if room == nil {
 		return nil
 	}
@@ -73,26 +78,42 @@ func (c *RedisRoomCache) Set(
 	data, err := json.Marshal(room)
 	if err != nil {
 		return fmt.Errorf(
-			"marshal room: %w",
+			"marshal room %q: %w",
+			room.Id,
 			err,
 		)
 	}
 
-	return c.redis.Client.Set(
+	if err := c.redis.Client.Set(
 		ctx,
 		roomKey(room.Id),
 		data,
 		c.ttl,
-	).Err()
+	).Err(); err != nil {
+		return fmt.Errorf(
+			"set room %q in Redis: %w",
+			room.Id,
+			err,
+		)
+	}
+
+	return nil
 }
 
 func (c *RedisRoomCache) Delete(
 	ctx context.Context,
 	roomID string,
 ) error {
-
-	return c.redis.Client.Del(
+	if err := c.redis.Client.Del(
 		ctx,
 		roomKey(roomID),
-	).Err()
+	).Err(); err != nil {
+		return fmt.Errorf(
+			"delete room %q from Redis: %w",
+			roomID,
+			err,
+		)
+	}
+
+	return nil
 }

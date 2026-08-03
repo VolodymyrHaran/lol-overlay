@@ -9,6 +9,8 @@ import (
 
 	"lol-timer/internal/middleware"
 	"lol-timer/internal/services"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func (a *App) Run(ctx context.Context) error {
@@ -25,6 +27,11 @@ func (a *App) Run(ctx context.Context) error {
 	mux.HandleFunc(
 		"/rooms/",
 		a.RoomHandler.HandleRooms,
+	)
+
+	mux.Handle(
+		"/metrics",
+		promhttp.Handler(),
 	)
 
 	mux.HandleFunc(

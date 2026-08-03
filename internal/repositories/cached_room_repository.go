@@ -2,9 +2,10 @@ package repositories
 
 import (
 	"context"
-	"log"
+	"log/slog"
 
 	"lol-timer/internal/cache"
+	"lol-timer/internal/metrics"
 	"lol-timer/internal/models"
 )
 
@@ -31,32 +32,61 @@ func (r *CachedRoomRepository) Get(
 ) (*models.Room, bool, error) {
 	if r.cache != nil {
 		room, exists, err := r.cache.Get(ctx, id)
+
 		if err != nil {
-			log.Printf(
-				"get room %q from cache: %v",
-				id,
-				err,
+			metrics.CacheErrors.
+				WithLabelValues("get").
+				Inc()
+
+			slog.Warn(
+				"failed to get room from cache",
+				"room_id", id,
+				"error", err,
 			)
 		} else if exists {
+			metrics.CacheRequests.
+				WithLabelValues("hit").
+				Inc()
+
 			return room, true, nil
+		} else {
+			metrics.CacheRequests.
+				WithLabelValues("miss").
+				Inc()
 		}
 	}
 
 	room, exists, err := r.repository.Get(ctx, id)
 	if err != nil {
+		metrics.RepositoryOperations.
+			WithLabelValues("get", "error").
+			Inc()
+
 		return nil, false, err
 	}
 
 	if !exists {
+		metrics.RepositoryOperations.
+			WithLabelValues("get", "not_found").
+			Inc()
+
 		return nil, false, nil
 	}
 
+	metrics.RepositoryOperations.
+		WithLabelValues("get", "success").
+		Inc()
+
 	if r.cache != nil {
 		if err := r.cache.Set(ctx, room); err != nil {
-			log.Printf(
-				"set room %q in cache: %v",
-				id,
-				err,
+			metrics.CacheErrors.
+				WithLabelValues("set").
+				Inc()
+
+			slog.Warn(
+				"failed to store room in cache",
+				"room_id", id,
+				"error", err,
 			)
 		}
 	}
@@ -67,9 +97,22 @@ func (r *CachedRoomRepository) Get(
 func (r *CachedRoomRepository) GetAll(
 	ctx context.Context,
 ) ([]*models.Room, error) {
-	// Список комнат пока всегда читаем из PostgreSQL.
-	// Кэшировать GetAll сейчас не нужно.
-	return r.repository.GetAll(ctx)
+	rooms, err := r.repository.GetAll(ctx)
+	if err != nil {
+		metrics.RepositoryOperations.
+			WithLabelValues("get_all", "error").
+			Inc()
+
+		return nil, err
+	}
+
+	metrics.RepositoryOperations.
+		WithLabelValues("get_all", "success").
+		Inc()
+
+	metrics.ActiveRooms.Set(float64(len(rooms)))
+
+	return rooms, nil
 }
 
 func (r *CachedRoomRepository) Save(
@@ -77,15 +120,27 @@ func (r *CachedRoomRepository) Save(
 	room *models.Room,
 ) error {
 	if err := r.repository.Save(ctx, room); err != nil {
+		metrics.RepositoryOperations.
+			WithLabelValues("save", "error").
+			Inc()
+
 		return err
 	}
 
+	metrics.RepositoryOperations.
+		WithLabelValues("save", "success").
+		Inc()
+
 	if r.cache != nil && room != nil {
 		if err := r.cache.Set(ctx, room); err != nil {
-			log.Printf(
-				"set room %q in cache after save: %v",
-				room.Id,
-				err,
+			metrics.CacheErrors.
+				WithLabelValues("set").
+				Inc()
+
+			slog.Warn(
+				"failed to update room cache after save",
+				"room_id", room.Id,
+				"error", err,
 			)
 		}
 	}
@@ -98,15 +153,27 @@ func (r *CachedRoomRepository) Delete(
 	id string,
 ) error {
 	if err := r.repository.Delete(ctx, id); err != nil {
+		metrics.RepositoryOperations.
+			WithLabelValues("delete", "error").
+			Inc()
+
 		return err
 	}
 
+	metrics.RepositoryOperations.
+		WithLabelValues("delete", "success").
+		Inc()
+
 	if r.cache != nil {
 		if err := r.cache.Delete(ctx, id); err != nil {
-			log.Printf(
-				"delete room %q from cache: %v",
-				id,
-				err,
+			metrics.CacheErrors.
+				WithLabelValues("delete").
+				Inc()
+
+			slog.Warn(
+				"failed to delete room from cache",
+				"room_id", id,
+				"error", err,
 			)
 		}
 	}
