@@ -67,20 +67,23 @@ func TogglePlayerSpell(
 		return false
 	}
 
-	spell.IsReady = !spell.IsReady
-
 	if !spell.IsReady {
-		cooldown := CalculateCooldown(
-			spell.BaseCooldown,
-			player.SummonerSpellHaste,
-		)
-
-		spell.CooldownEndTime =
-			time.Now().Add(time.Duration(cooldown) * time.Second)
-	} else {
+		spell.IsReady = true
 		spell.CooldownEndTime = time.Time{}
 		spell.RemainingCooldown = 0
+		return true
 	}
+
+	cooldown := CalculateCooldown(
+		spell.BaseCooldown,
+		player.SummonerSpellHaste,
+	)
+
+	spell.IsReady = false
+	spell.RemainingCooldown = cooldown
+	spell.CooldownEndTime = time.Now().UTC().Add(
+		time.Duration(cooldown) * time.Second,
+	)
 
 	return true
 }

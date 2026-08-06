@@ -13,15 +13,22 @@ import (
 )
 
 type RoomService struct {
-	mu         sync.Mutex
-	repository repositories.RoomRepository
+	mu              sync.Mutex
+	repository      repositories.RoomRepository
+	championService *ChampionService
+	currentRoomID   string
+
+	currentRoomUpdates chan string
 }
 
 func NewRoomService(
 	repository repositories.RoomRepository,
+	championService *ChampionService,
 ) *RoomService {
 	return &RoomService{
-		repository: repository,
+		repository:         repository,
+		championService:    championService,
+		currentRoomUpdates: make(chan string, 8),
 	}
 }
 
@@ -307,11 +314,18 @@ func (s *RoomService) SyncFromChampSelect(
 	)
 
 	for _, member := range session.MyTeam {
+
+		champion := s.championService.Get(
+			member.ChampionId,
+		)
+
 		player := models.Player{
-			GameName:           member.GameName,
-			TagLine:            member.TagLine,
-			ChampionId:         member.ChampionId,
-			Champion:           GetChampionName(member.ChampionId),
+			GameName:      member.GameName,
+			TagLine:       member.TagLine,
+			ChampionId:    member.ChampionId,
+			Champion:      champion.Name,
+			ChampionImage: champion.ImageURL,
+
 			SummonerSpellHaste: constants.DefaultSummonerSpellHaste,
 			Spells: []models.SummonerSpell{
 				{
@@ -338,7 +352,22 @@ func (s *RoomService) SyncFromChampSelect(
 		players = append(players, player)
 	}
 
-	return s.ReplacePlayers(ctx, roomID, players)
+	updated, err := s.ReplacePlayers(
+		ctx,
+		roomID,
+		players,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	if !updated {
+		return false, nil
+	}
+
+	s.SetCurrentRoomID(roomID)
+
+	return true, nil
 }
 
 func (s *RoomService) ReplacePlayers(
@@ -489,9 +518,19 @@ func (s *RoomService) cleanupOldRooms(
 				err,
 			)
 		}
+
+		s.clearCurrentRoomIDLocked(room.Id)
 	}
 
 	return nil
+}
+
+func (s *RoomService) clearCurrentRoomIDLocked(
+	roomID string,
+) {
+	if s.currentRoomID == roomID {
+		s.currentRoomID = ""
+	}
 }
 
 func (s *RoomService) saveRoom(
@@ -513,4 +552,65 @@ func (s *RoomService) saveRoom(
 	}
 
 	return nil
+}
+
+func (s *RoomService) SetCurrentRoomID(
+	roomID string,
+) {
+	s.mu.Lock()
+
+	if s.currentRoomID == roomID {
+		s.mu.Unlock()
+		return
+	}
+
+	s.currentRoomID = roomID
+	s.mu.Unlock()
+
+	s.publishCurrentRoomUpdate(roomID)
+}
+
+func (s *RoomService) GetCurrentRoomID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.currentRoomID
+}
+
+func (s *RoomService) ClearCurrentRoomID(
+	roomID string,
+) {
+	s.mu.Lock()
+
+	if s.currentRoomID != roomID {
+		s.mu.Unlock()
+		return
+	}
+
+	s.currentRoomID = ""
+	s.mu.Unlock()
+
+	s.publishCurrentRoomUpdate("")
+}
+
+func (s *RoomService) CurrentRoomUpdates() <-chan string {
+	return s.currentRoomUpdates
+}
+
+func (s *RoomService) publishCurrentRoomUpdate(
+	roomID string,
+) {
+	select {
+	case s.currentRoomUpdates <- roomID:
+	default:
+		select {
+		case <-s.currentRoomUpdates:
+		default:
+		}
+
+		select {
+		case s.currentRoomUpdates <- roomID:
+		default:
+		}
+	}
 }

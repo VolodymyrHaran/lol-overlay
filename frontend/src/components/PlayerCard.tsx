@@ -1,5 +1,8 @@
 import type { Player } from "../types";
 import SpellButton from "./SpellButton";
+import { useEffect, useState } from "react";
+
+
 import {
   Card,
   CardContent,
@@ -10,31 +13,42 @@ type Props = {
   onToggleSpell: (
     gameName: string,
     tagLine: string,
-    spell: string
+    spell: string,
   ) => void;
 };
 
-function PlayerCard({ player, onToggleSpell }: Props) {
+
+function PlayerCard({
+  player,
+  onToggleSpell,
+}: Props) {
+  const [imageLoaded, setImageLoaded] = useState(false);
+
+  useEffect(() => {
+    setImageLoaded(false);
+  }, [player.championImage]);
+
+
   return (
     <Card className="mb-4">
       <CardContent className="flex items-center justify-between p-5">
-        <div className="flex items-center gap-4">
-          <img
-            src={`https://ddragon.leagueoflegends.com/cdn/15.24.1/img/champion/${player.champion}.png`}
-            alt={player.champion}
-            className="h-14 w-14 rounded-lg"
-          />
+        <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-zinc-800">
+          {!imageLoaded && (
+            <div className="absolute inset-0 animate-pulse bg-zinc-700" />
+          )}
 
-          <div>
-            <h3 className="text-lg font-semibold">
-              {player.gameName}
-              <span className="text-gray-400">#{player.tagLine}</span>
-            </h3>
-
-            <p className="mt-1 text-sm text-blue-400">
-              {player.champion || "Unknown champion"}
-            </p>
-          </div>
+          {player.championImage && (
+            <img
+              key={player.championImage}
+              src={player.championImage}
+              alt={player.champion}
+              className={`h-full w-full object-cover transition-opacity duration-200 ${
+                imageLoaded ? "opacity-100" : "opacity-0"
+              }`}
+              onLoad={() => setImageLoaded(true)}
+              onError={() => setImageLoaded(false)}
+            />
+          )}
         </div>
 
         <div className="flex gap-3">
@@ -46,7 +60,7 @@ function PlayerCard({ player, onToggleSpell }: Props) {
                 onToggleSpell(
                   player.gameName,
                   player.tagLine,
-                  spell.name
+                  spell.name,
                 )
               }
             />

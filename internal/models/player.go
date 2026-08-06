@@ -2,6 +2,7 @@ package models
 
 type Player struct {
 	Champion           string          `json:"champion"`
+	ChampionImage      string          `json:"championImage"`
 	GameName           string          `json:"gameName"`
 	TagLine            string          `json:"tagLine"`
 	ChampionId         int             `json:"championId"`

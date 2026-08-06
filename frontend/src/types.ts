@@ -7,6 +7,7 @@ export type SummonerSpell = {
 
 export type Player = {
   champion: string;
+  championImage: string;
   gameName: string;
   tagLine: string;
   championId: number;

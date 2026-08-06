@@ -15,6 +15,38 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/current-room": {
+            "get": {
+                "description": "Returns the room currently synchronized with the League Client.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "rooms"
+                ],
+                "summary": "Get current room",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dto.CurrentRoomResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "405": {
+                        "description": "Method Not Allowed",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "description": "Returns OK when the application process is running.",
@@ -246,6 +278,15 @@ const docTemplate = `{
                 "champion": {
                     "type": "string",
                     "example": "Ahri"
+                }
+            }
+        },
+        "dto.CurrentRoomResponse": {
+            "type": "object",
+            "properties": {
+                "roomId": {
+                    "type": "string",
+                    "example": "7936545340-100"
                 }
             }
         },

@@ -219,3 +219,54 @@ func (rh *RoomHandler) HandleRooms(w http.ResponseWriter, r *http.Request) {
 
 	http.NotFound(w, r)
 }
+
+// GetCurrentRoom godoc
+//
+// @Summary      Get current room
+// @Description  Returns the room currently synchronized with the League Client.
+// @Tags         rooms
+// @Produce      json
+// @Success      200  {object}  dto.CurrentRoomResponse
+// @Failure      404  {string}  string
+// @Failure      405  {string}  string
+// @Router       /current-room [get]
+func (rh *RoomHandler) GetCurrentRoom(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	if r.Method != http.MethodGet {
+		http.Error(
+			w,
+			"Method not allowed",
+			http.StatusMethodNotAllowed,
+		)
+		return
+	}
+
+	roomID := rh.roomService.GetCurrentRoomID()
+	if roomID == "" {
+		http.Error(
+			w,
+			"Current room not found",
+			http.StatusNotFound,
+		)
+		return
+	}
+
+	response := dto.CurrentRoomResponse{
+		RoomID: roomID,
+	}
+
+	w.Header().Set(
+		"Content-Type",
+		"application/json",
+	)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(
+			w,
+			"Failed to encode current room",
+			http.StatusInternalServerError,
+		)
+	}
+}

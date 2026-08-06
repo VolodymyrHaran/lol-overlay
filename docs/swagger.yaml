@@ -6,6 +6,12 @@ definitions:
         example: Ahri
         type: string
     type: object
+  dto.CurrentRoomResponse:
+    properties:
+      roomId:
+        example: 7936545340-100
+        type: string
+    type: object
   dto.ToggleSpellRequest:
     properties:
       gameName:
@@ -87,6 +93,27 @@ info:
   title: LoL Timer API
   version: "1.0"
 paths:
+  /current-room:
+    get:
+      description: Returns the room currently synchronized with the League Client.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.CurrentRoomResponse'
+        "404":
+          description: Not Found
+          schema:
+            type: string
+        "405":
+          description: Method Not Allowed
+          schema:
+            type: string
+      summary: Get current room
+      tags:
+      - rooms
   /health:
     get:
       description: Returns OK when the application process is running.

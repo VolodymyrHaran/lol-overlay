@@ -5,6 +5,7 @@ import (
 	"lol-timer/internal/constants"
 	"lol-timer/internal/models"
 	"lol-timer/internal/repositories"
+	"net/http"
 	"testing"
 	"time"
 )
@@ -14,7 +15,7 @@ func newTestRoomService(t *testing.T) *RoomService {
 
 	repository := repositories.NewInMemoryRoomRepository()
 
-	return NewRoomService(repository)
+	return NewRoomService(repository, newTestChampionService())
 }
 
 func mustCreateRoom(
@@ -91,7 +92,10 @@ func TestCreateRoomCreatesRoom(t *testing.T) {
 
 func TestCreateRoomReturnsExistingRoom(t *testing.T) {
 	repository := repositories.NewInMemoryRoomRepository()
-	service := NewRoomService(repository)
+	service := NewRoomService(
+		repository,
+		newTestChampionService(),
+	)
 
 	firstRoom := mustCreateRoom(t, service, "room-1")
 	secondRoom := mustCreateRoom(t, service, "room-1")
@@ -634,4 +638,62 @@ func TestSyncFromChampSelectReturnsFalseForUnknownRoom(t *testing.T) {
 
 func testContext() context.Context {
 	return context.Background()
+}
+
+func TestCurrentRoomID(t *testing.T) {
+	service := newTestRoomService(t)
+
+	if actual := service.GetCurrentRoomID(); actual != "" {
+		t.Fatalf(
+			"expected empty current room, got %q",
+			actual,
+		)
+	}
+
+	service.SetCurrentRoomID("room-1")
+
+	if actual := service.GetCurrentRoomID(); actual != "room-1" {
+		t.Fatalf(
+			"expected current room %q, got %q",
+			"room-1",
+			actual,
+		)
+	}
+
+	service.ClearCurrentRoomID("another-room")
+
+	if actual := service.GetCurrentRoomID(); actual != "room-1" {
+		t.Fatalf(
+			"expected current room to remain %q, got %q",
+			"room-1",
+			actual,
+		)
+	}
+
+	service.ClearCurrentRoomID("room-1")
+
+	if actual := service.GetCurrentRoomID(); actual != "" {
+		t.Fatalf(
+			"expected current room to be cleared, got %q",
+			actual,
+		)
+	}
+}
+
+func newTestChampionService() *ChampionService {
+	return &ChampionService{
+		champions: map[int]ChampionInfo{
+			103: {
+				ID:       103,
+				Name:     "Ahri",
+				ImageURL: "https://example.com/Ahri.png",
+			},
+			222: {
+				ID:       222,
+				Name:     "Jinx",
+				ImageURL: "https://example.com/Jinx.png",
+			},
+		},
+		client: &http.Client{},
+	}
 }

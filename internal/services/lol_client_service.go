@@ -173,19 +173,6 @@ func (s *LolClientService) GetLocalPlayerTeam(session *models.ChampSelectSession
 	return 0
 }
 
-func (s *LolClientService) GetChampionName(championId int) string {
-	switch championId {
-	case 103:
-		return "Ahri"
-	case 222:
-		return "Jinx"
-	case 64:
-		return "Lee Sin"
-	default:
-		return "Unknown"
-	}
-}
-
 func (s *LolClientService) StartChampSelectSync(
 	ctx context.Context,
 	roomService *RoomService,

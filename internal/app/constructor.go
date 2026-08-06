@@ -66,7 +66,22 @@ func New() (*App, error) {
 		roomCache,
 	)
 
-	roomService := services.NewRoomService(cachedRepository)
+	championService := services.NewChampionService()
+
+	championContext, championCancel := context.WithTimeout(
+		context.Background(),
+		10*time.Second,
+	)
+	defer championCancel()
+
+	if err := championService.Load(championContext); err != nil {
+		return nil, fmt.Errorf(
+			"load champion catalog: %w",
+			err,
+		)
+	}
+
+	roomService := services.NewRoomService(cachedRepository, championService)
 
 	roomHandler := handlers.NewRoomHandler(roomService)
 

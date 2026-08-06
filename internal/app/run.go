@@ -21,6 +21,10 @@ func (a *App) Run(ctx context.Context) error {
 	a.RoomService.StartRoomCleanup(ctx)
 
 	a.Hub.StartRoomUpdates(ctx, a.RoomService)
+	a.Hub.StartCurrentRoomUpdates(
+		ctx,
+		a.RoomService,
+	)
 
 	lolClient := services.NewLolClientService()
 	lolClient.StartChampSelectSync(ctx, a.RoomService)
@@ -56,11 +60,37 @@ func (a *App) Run(ctx context.Context) error {
 
 	mux.HandleFunc(
 		"/ws",
-		a.Hub.HandleWebSocket,
+		func(w http.ResponseWriter, r *http.Request) {
+			a.Hub.HandleWebSocket(
+				w,
+				r,
+				a.RoomService,
+			)
+		},
+	)
+
+	mux.HandleFunc(
+		"/current-room",
+		a.RoomHandler.GetCurrentRoom,
+	)
+
+	mux.HandleFunc(
+		"/ws/current-room",
+		func(w http.ResponseWriter, r *http.Request) {
+			a.Hub.HandleCurrentRoomWebSocket(
+				w,
+				r,
+				a.RoomService,
+			)
+		},
 	)
 
 	handler := middleware.Recovery(
-		middleware.Logging(mux),
+		middleware.Logging(
+			middleware.CORS(
+				mux,
+			),
+		),
 	)
 
 	a.server.Handler = handler
