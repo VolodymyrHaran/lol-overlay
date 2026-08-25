@@ -122,6 +122,14 @@ services:
 
     depends_on:
       - prometheus
+  nats:
+    image: nats:latest
+    container_name: lol-timer-nats
+    command: ["-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    restart: unless-stopped
 volumes:
   postgres_data:
   redis_data:

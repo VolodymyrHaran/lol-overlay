@@ -81,6 +81,7 @@ func loadPlayers(
 			game_name,
 			tag_line,
 			champion,
+			champion_image,
 			champion_id,
 			summoner_spell_haste
 		FROM players
@@ -110,6 +111,7 @@ func loadPlayers(
 			&player.GameName,
 			&player.TagLine,
 			&player.Champion,
+			&player.ChampionImage,
 			&player.ChampionId,
 			&player.SummonerSpellHaste,
 		); err != nil {

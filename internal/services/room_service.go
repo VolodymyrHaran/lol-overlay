@@ -2,33 +2,40 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
 	"time"
 
 	"lol-timer/internal/constants"
+	"lol-timer/internal/messaging"
 	"lol-timer/internal/models"
 	"lol-timer/internal/repositories"
 )
+
+type EventPublisher interface {
+	Publish(subject string, data []byte) error
+}
 
 type RoomService struct {
 	mu              sync.Mutex
 	repository      repositories.RoomRepository
 	championService *ChampionService
-	currentRoomID   string
+	publisher       EventPublisher
 
-	currentRoomUpdates chan string
+	currentRoomID string
 }
 
 func NewRoomService(
 	repository repositories.RoomRepository,
 	championService *ChampionService,
+	publisher EventPublisher,
 ) *RoomService {
 	return &RoomService{
-		repository:         repository,
-		championService:    championService,
-		currentRoomUpdates: make(chan string, 8),
+		repository:      repository,
+		championService: championService,
+		publisher:       publisher,
 	}
 }
 
@@ -554,9 +561,7 @@ func (s *RoomService) saveRoom(
 	return nil
 }
 
-func (s *RoomService) SetCurrentRoomID(
-	roomID string,
-) {
+func (s *RoomService) SetCurrentRoomID(roomID string) {
 	s.mu.Lock()
 
 	if s.currentRoomID == roomID {
@@ -567,7 +572,34 @@ func (s *RoomService) SetCurrentRoomID(
 	s.currentRoomID = roomID
 	s.mu.Unlock()
 
-	s.publishCurrentRoomUpdate(roomID)
+	if err := s.publishCurrentRoomChanged(roomID); err != nil {
+		log.Printf(
+			"publish current room changed: room=%q error=%v",
+			roomID,
+			err,
+		)
+	}
+}
+
+func (s *RoomService) publishCurrentRoomChanged(
+	roomID string,
+) error {
+	event := messaging.CurrentRoomChangedEvent{
+		RoomID: roomID,
+	}
+
+	data, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf(
+			"marshal current room changed event: %w",
+			err,
+		)
+	}
+
+	return s.publisher.Publish(
+		messaging.SubjectCurrentRoomChanged,
+		data,
+	)
 }
 
 func (s *RoomService) GetCurrentRoomID() string {
@@ -577,9 +609,7 @@ func (s *RoomService) GetCurrentRoomID() string {
 	return s.currentRoomID
 }
 
-func (s *RoomService) ClearCurrentRoomID(
-	roomID string,
-) {
+func (s *RoomService) ClearCurrentRoomID(roomID string) {
 	s.mu.Lock()
 
 	if s.currentRoomID != roomID {
@@ -590,27 +620,10 @@ func (s *RoomService) ClearCurrentRoomID(
 	s.currentRoomID = ""
 	s.mu.Unlock()
 
-	s.publishCurrentRoomUpdate("")
-}
-
-func (s *RoomService) CurrentRoomUpdates() <-chan string {
-	return s.currentRoomUpdates
-}
-
-func (s *RoomService) publishCurrentRoomUpdate(
-	roomID string,
-) {
-	select {
-	case s.currentRoomUpdates <- roomID:
-	default:
-		select {
-		case <-s.currentRoomUpdates:
-		default:
-		}
-
-		select {
-		case s.currentRoomUpdates <- roomID:
-		default:
-		}
+	if err := s.publishCurrentRoomChanged(""); err != nil {
+		log.Printf(
+			"publish current room cleared: %v",
+			err,
+		)
 	}
 }

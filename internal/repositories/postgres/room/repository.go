@@ -132,16 +132,18 @@ func savePlayer(
 			game_name,
 			tag_line,
 			champion,
+			champion_image,
 			champion_id,
 			summoner_spell_haste
 		)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id
 		`,
 		roomId,
 		player.GameName,
 		player.TagLine,
 		player.Champion,
+		player.ChampionImage,
 		player.ChampionId,
 		player.SummonerSpellHaste,
 	).Scan(&playerId)

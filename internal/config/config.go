@@ -16,6 +16,8 @@ type Config struct {
 	RedisPassword string
 	RedisDatabase int
 	RoomCacheTTL  time.Duration
+
+	NATSURL string
 }
 
 func Load() (*Config, error) {
@@ -48,6 +50,7 @@ func Load() (*Config, error) {
 		RedisPassword: os.Getenv("REDIS_PASSWORD"),
 		RedisDatabase: redisDatabase,
 		RoomCacheTTL:  roomCacheTTL,
+		NATSURL:       getEnv("NATS_URL", "nats://localhost:4222"),
 	}
 
 	if cfg.DatabaseURL == "" {

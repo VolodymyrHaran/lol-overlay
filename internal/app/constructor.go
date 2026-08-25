@@ -9,9 +9,11 @@ import (
 
 	"lol-timer/internal/cache"
 	"lol-timer/internal/config"
+	"lol-timer/internal/consumers"
 	"lol-timer/internal/database"
 	"lol-timer/internal/handlers"
 	"lol-timer/internal/logger"
+	"lol-timer/internal/messaging"
 	"lol-timer/internal/metrics"
 	"lol-timer/internal/repositories"
 	roomrepo "lol-timer/internal/repositories/postgres/room"
@@ -20,7 +22,6 @@ import (
 )
 
 func New() (*App, error) {
-
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
@@ -54,6 +55,17 @@ func New() (*App, error) {
 		)
 	}
 
+	natsClient, err := messaging.New(cfg.NATSURL)
+	if err != nil {
+		redisClient.Close()
+		db.Close()
+
+		return nil, fmt.Errorf(
+			"connect NATS: %w",
+			err,
+		)
+	}
+
 	postgresRepository := roomrepo.NewRoomRepository(db)
 
 	roomCache := cache.NewRedisRoomCache(
@@ -75,13 +87,23 @@ func New() (*App, error) {
 	defer championCancel()
 
 	if err := championService.Load(championContext); err != nil {
+		natsClient.Close()
+		redisClient.Close()
+		db.Close()
+
 		return nil, fmt.Errorf(
 			"load champion catalog: %w",
 			err,
 		)
 	}
 
-	roomService := services.NewRoomService(cachedRepository, championService)
+	hub := websocket.NewHub()
+
+	roomService := services.NewRoomService(
+		cachedRepository,
+		championService,
+		natsClient,
+	)
 
 	roomHandler := handlers.NewRoomHandler(roomService)
 
@@ -90,7 +112,21 @@ func New() (*App, error) {
 		redisClient,
 	)
 
-	hub := websocket.NewHub()
+	roomConsumer := consumers.NewRoomConsumer(
+		natsClient,
+		hub,
+	)
+
+	if err := roomConsumer.Start(); err != nil {
+		natsClient.Close()
+		redisClient.Close()
+		db.Close()
+
+		return nil, fmt.Errorf(
+			"start room consumer: %w",
+			err,
+		)
+	}
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddress,
@@ -105,6 +141,7 @@ func New() (*App, error) {
 
 		DB:    db,
 		Redis: redisClient,
+		NATS:  natsClient,
 
 		Logger:        log,
 		HealthHandler: healthHandler,

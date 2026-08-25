@@ -10,12 +10,21 @@ import (
 	"time"
 )
 
+type noopEventPublisher struct{}
+
+func (noopEventPublisher) Publish(
+	subject string,
+	data []byte,
+) error {
+	return nil
+}
+
 func newTestRoomService(t *testing.T) *RoomService {
 	t.Helper()
 
 	repository := repositories.NewInMemoryRoomRepository()
 
-	return NewRoomService(repository, newTestChampionService())
+	return NewRoomService(repository, newTestChampionService(), noopEventPublisher{})
 }
 
 func mustCreateRoom(
@@ -95,6 +104,7 @@ func TestCreateRoomReturnsExistingRoom(t *testing.T) {
 	service := NewRoomService(
 		repository,
 		newTestChampionService(),
+		noopEventPublisher{},
 	)
 
 	firstRoom := mustCreateRoom(t, service, "room-1")

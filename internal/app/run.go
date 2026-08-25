@@ -21,10 +21,6 @@ func (a *App) Run(ctx context.Context) error {
 	a.RoomService.StartRoomCleanup(ctx)
 
 	a.Hub.StartRoomUpdates(ctx, a.RoomService)
-	a.Hub.StartCurrentRoomUpdates(
-		ctx,
-		a.RoomService,
-	)
 
 	lolClient := services.NewLolClientService()
 	lolClient.StartChampSelectSync(ctx, a.RoomService)

@@ -1,55 +1,26 @@
-# LoL Timer
+# LoL Group Helper
 
-Real-time League of Legends summoner spell tracker built with Go.
+A real-time League of Legends summoner spell tracker built with Go, React and WebSockets.
 
-The application synchronizes with the League Client (LCU), tracks enemy summoner spell cooldowns, stores room state in PostgreSQL, caches data in Redis, and exposes Prometheus metrics with Grafana dashboards.
+The application automatically detects the current Champion Select session, synchronizes players from the League Client (LCU API), and allows teammates to track enemy summoner spell cooldowns in real time.
 
 ---
 
 ## Features
 
-- Real-time cooldown tracking
-- Automatic Champion Select synchronization
-- REST API
-- WebSocket updates
-- PostgreSQL persistence
-- Redis caching
-- Prometheus metrics
-- Grafana dashboard
-- Swagger API documentation
-- Docker Compose
-- Health & Readiness endpoints
-- GitHub Actions CI
-- Unit tests
-- Race detector support
-
----
-
-## Architecture
-
-```
-                   League Client (LCU)
-                           │
-                           ▼
-                  Champion Select Sync
-                           │
-                           ▼
-                     Room Service
-                           │
-           ┌───────────────┴───────────────┐
-           ▼                               ▼
-     Redis Cache                    PostgreSQL
-           │                               │
-           └───────────────┬───────────────┘
-                           ▼
-                     REST API
-                           │
-                           ▼
-                      WebSocket
-                           │
-                           ▼
-                     React Frontend
-```
+- 🎮 Automatic Champion Select detection
+- 👥 Automatic room creation
+- 🔄 Real-time synchronization via WebSocket
+- ⚡ Summoner spell cooldown tracking
+- 📡 League Client (LCU) integration
+- 🗄 PostgreSQL persistence
+- 🚀 Redis cache
+- 📊 Prometheus metrics
+- 📖 Swagger API
+- ❤️ Health & Readiness endpoints
+- 🐳 Docker support
+- 🎨 React + TypeScript frontend
+- 🌙 Modern UI built with Tailwind CSS + shadcn/ui
 
 ---
 
@@ -57,63 +28,75 @@ The application synchronizes with the League Client (LCU), tracks enemy summoner
 
 ### Backend
 
-- Go 1.26
-- net/http
-- WebSocket
+- Go
+- Gorilla WebSocket
 - PostgreSQL
 - Redis
+- Docker
+- Prometheus
+- Swagger
+- Repository Pattern
 
 ### Frontend
 
 - React
 - TypeScript
-- TailwindCSS
+- Vite
+- Tailwind CSS
+- shadcn/ui
 
-### Infrastructure
+---
 
-- Docker
-- Docker Compose
-- Prometheus
-- Grafana
+## Architecture
 
-### Documentation
-
-- Swagger / OpenAPI
-
-### Quality
-
-- GitHub Actions
-- Unit Tests
-- Race Tests
+```
+League Client (LCU)
+          │
+          ▼
+ Champion Select Sync
+          │
+          ▼
+     RoomService
+          │
+ ┌────────┴─────────┐
+ │                  │
+ ▼                  ▼
+Current Room WS   Room WS
+ │                  │
+ ▼                  ▼
+ React UI       Live Updates
+```
 
 ---
 
 ## Project Structure
 
 ```
-cmd/
-    server/
+backend
+│
+├── cmd/
+├── internal/
+│   ├── app/
+│   ├── cache/
+│   ├── config/
+│   ├── handlers/
+│   ├── middleware/
+│   ├── models/
+│   ├── repositories/
+│   ├── services/
+│   └── websocket/
+│
+├── docs/
+└── docker/
 
-internal/
-    app/
-    cache/
-    config/
-    database/
-    dto/
-    handlers/
-    logger/
-    metrics/
-    middleware/
-    models/
-    repositories/
-    services/
-    websocket/
-
-docs/
-
-monitoring/
-
-frontend/
+frontend
+│
+├── src/
+│   ├── components/
+│   ├── config/
+│   ├── hooks/
+│   ├── types/
+│   └── ui/
 ```
 
 ---
@@ -126,22 +109,16 @@ frontend/
 GET /health
 ```
 
-### Readiness
+### Ready
 
 ```
 GET /ready
 ```
 
-### Room
+### Swagger
 
 ```
-GET /rooms/{roomId}
-```
-
-### Add player
-
-```
-POST /rooms/{roomId}/players
+GET /swagger/index.html
 ```
 
 ### Toggle spell
@@ -156,158 +133,131 @@ POST /rooms/{roomId}/spells/toggle
 GET /metrics
 ```
 
-### Swagger
+---
+
+## WebSocket API
+
+### Current room
 
 ```
-GET /swagger/index.html
+/ws/current-room
+```
+
+Message
+
+```json
+{
+  "type": "current_room",
+  "roomId": "7941931125-1"
+}
+```
+
+---
+
+### Room updates
+
+```
+/ws?roomId={roomId}
+```
+
+Message
+
+```json
+{
+  "type": "room_update",
+  "room": {}
+}
+```
+
+---
+
+## Running locally
+
+### Backend
+
+```bash
+go run ./cmd/server
+```
+
+### Frontend
+
+```bash
+cd frontend
+
+npm install
+
+npm run dev
+```
+
+---
+
+## Docker
+
+```bash
+docker compose up -d
 ```
 
 ---
 
 ## Monitoring
 
-Prometheus metrics include
+Prometheus metrics
 
-- HTTP requests
-- HTTP latency
-- Active rooms
-- Redis cache hits
-- Redis cache misses
-- Repository operations
-- WebSocket connections
-- Go runtime metrics
-
-Grafana dashboard includes
-
-- Active rooms
-- WebSocket connections
-- Cache hit ratio
-- HTTP requests/sec
-- HTTP latency
-- Repository operations
-- Memory usage
-- CPU usage
-- Goroutines
-
----
-
-## Running locally
-
-Clone repository
-
-```bash
-git clone https://github.com/YOUR_USERNAME/lol-timer.git
-
-cd lol-timer
+```
+/metrics
 ```
 
-Create environment file
+Health
 
-```env
-DATABASE_URL=postgres://lol_timer:password@localhost:5432/lol_timer?sslmode=disable
-
-REDIS_ADDRESS=localhost:6379
-
-REDIS_PASSWORD=
-
-REDIS_DATABASE=0
-
-ROOM_CACHE_TTL=10m
-
-HTTP_ADDRESS=:8080
-
-LOG_LEVEL=info
+```
+/health
 ```
 
-Start infrastructure
+Ready
 
-```bash
-docker compose up -d
+```
+/ready
 ```
 
-Run application
+Swagger
 
-```bash
-go run ./cmd/server
 ```
-
-or
-
-```bash
-docker compose up --build
+/swagger/index.html
 ```
 
 ---
 
-## Testing
+## Current Features
 
-Run all tests
-
-```bash
-go test ./...
-```
-
-Race detector
-
-```bash
-go test -race ./...
-```
-
-Format
-
-```bash
-go fmt ./...
-```
-
-Vet
-
-```bash
-go vet ./...
-```
-
----
-
-## CI
-
-Every push automatically runs
-
-- gofmt
-- go vet
-- go test
-- go test -race
-- build verification
-
----
-
-## Documentation
-
-Swagger UI
-
-```
-http://localhost:8080/swagger/index.html
-```
-
-Prometheus
-
-```
-http://localhost:9090
-```
-
-Grafana
-
-```
-http://localhost:3000
-```
+- Automatic League Client detection
+- Champion Select synchronization
+- Automatic room creation
+- Real-time room updates
+- Automatic reconnect
+- Redis room cache
+- PostgreSQL repository
+- Cooldown calculation
+- Cooldown persistence during Champion Select
+- WebSocket-based frontend synchronization
 
 ---
 
 ## Roadmap
 
-- Automatic room creation
-- Automatic room cleanup on game end
-- Match history
-- Improved frontend
-- Authentication
-- Spectator mode
+- [ ] Electron desktop application
+- [ ] Riot Data Dragon integration
+- [ ] Champion icons cache
+- [ ] Settings window
+- [ ] System tray
+- [ ] Auto start with Windows
+- [ ] GitHub Actions CI/CD
+- [ ] Releases
+- [ ] Auto updater
+
+---
+
+## Screenshots
+
+_Coming soon._
 
 ---

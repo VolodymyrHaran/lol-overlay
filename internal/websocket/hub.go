@@ -492,20 +492,3 @@ func (h *Hub) BroadcastCurrentRoom(roomID string) {
 		}
 	}
 }
-
-func (h *Hub) StartCurrentRoomUpdates(
-	ctx context.Context,
-	roomService *services.RoomService,
-) {
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-
-			case roomID := <-roomService.CurrentRoomUpdates():
-				h.BroadcastCurrentRoom(roomID)
-			}
-		}
-	}()
-}

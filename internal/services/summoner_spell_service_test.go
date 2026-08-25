@@ -186,7 +186,7 @@ func TestTogglePlayerSpellReturnsFalseForUnknownSpell(t *testing.T) {
 }
 func TestGetRoomReturnsIndependentSnapshot(t *testing.T) {
 	repo := repositories.NewInMemoryRoomRepository()
-	service := NewRoomService(repo, newTestChampionService())
+	service := NewRoomService(repo, newTestChampionService(), noopEventPublisher{})
 
 	service.CreateRoom(context.Background(), "room-1")
 

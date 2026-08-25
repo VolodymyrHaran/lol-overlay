@@ -9,6 +9,7 @@ import (
 	"lol-timer/internal/config"
 	"lol-timer/internal/database"
 	"lol-timer/internal/handlers"
+	"lol-timer/internal/messaging"
 	roomrepo "lol-timer/internal/repositories/postgres/room"
 	"lol-timer/internal/services"
 	"lol-timer/internal/websocket"
@@ -27,7 +28,8 @@ type App struct {
 	RoomService    *services.RoomService
 	RoomHandler    *handlers.RoomHandler
 
-	Hub *websocket.Hub
+	NATS *messaging.Client
+	Hub  *websocket.Hub
 
 	server *http.Server
 }
@@ -41,5 +43,8 @@ func (a *App) Close() {
 
 	if a.DB != nil {
 		a.DB.Close()
+	}
+	if a.NATS != nil {
+		a.NATS.Close()
 	}
 }

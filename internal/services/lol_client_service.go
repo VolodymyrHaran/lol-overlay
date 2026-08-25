@@ -188,7 +188,15 @@ func (s *LolClientService) StartChampSelectSync(
 
 			case <-ticker.C:
 				phase, err := s.GetGameflowPhase()
-				if err != nil || phase != "ChampSelect" {
+				if err != nil {
+					continue
+				}
+
+				if phase != "ChampSelect" {
+					roomID := roomService.GetCurrentRoomID()
+					if roomID != "" {
+						roomService.ClearCurrentRoomID(roomID)
+					}
 					continue
 				}
 

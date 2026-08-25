@@ -1,0 +1,2 @@
+ALTER TABLE players
+ADD COLUMN champion_image TEXT NOT NULL DEFAULT '';

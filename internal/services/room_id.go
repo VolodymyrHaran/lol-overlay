@@ -18,6 +18,9 @@ func BuildRoomId(session *models.ChampSelectSession) string {
 			break
 		}
 	}
+	if session.GameId == 0 || teamId == 0 {
+		return ""
+	}
 
 	return fmt.Sprintf("%d-%d", session.GameId, teamId)
 }
