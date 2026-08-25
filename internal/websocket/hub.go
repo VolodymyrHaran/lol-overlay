@@ -318,45 +318,6 @@ func (h *Hub) BroadcastRoomUpdate(
 		}
 	}
 }
-func (h *Hub) StartRoomUpdates(
-	ctx context.Context,
-	roomService *services.RoomService,
-) {
-	go func() {
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-
-			case <-ticker.C:
-				rooms, err :=
-					roomService.GetRoomSnapshots(ctx)
-				if err != nil {
-					if ctx.Err() != nil {
-						return
-					}
-
-					log.Printf(
-						"get room snapshots for websocket: %v",
-						err,
-					)
-					continue
-				}
-
-				for _, room := range rooms {
-					if room == nil {
-						continue
-					}
-
-					h.BroadcastRoomUpdate(room)
-				}
-			}
-		}
-	}()
-}
 
 func (h *Hub) HandleCurrentRoomWebSocket(
 	w http.ResponseWriter,

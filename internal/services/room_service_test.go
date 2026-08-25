@@ -304,8 +304,8 @@ func TestReplacePlayersPreservesCooldownState(t *testing.T) {
 		t.Fatalf("replace players: %v", err)
 	}
 
-	if !ok {
-		t.Fatal("expected ReplacePlayers to succeed")
+	if ok {
+		t.Fatal("expected preserved state not to update room")
 	}
 
 	room := mustGetRoom(t, service, "room-1")
@@ -705,5 +705,47 @@ func newTestChampionService() *ChampionService {
 			},
 		},
 		client: &http.Client{},
+	}
+}
+
+func TestReplacePlayersReturnsFalseWhenPlayersUnchanged(
+	t *testing.T,
+) {
+	service := newTestRoomService(t)
+	mustCreateRoom(t, service, "room-1")
+
+	players := []models.Player{
+		{
+			GameName:   "Player",
+			TagLine:    "EUW",
+			Champion:   "Ahri",
+			ChampionId: 103,
+		},
+	}
+
+	updated, err := service.ReplacePlayers(
+		testContext(),
+		"room-1",
+		players,
+	)
+	if err != nil {
+		t.Fatalf("first replace players: %v", err)
+	}
+
+	if !updated {
+		t.Fatal("expected first replacement to update room")
+	}
+
+	updated, err = service.ReplacePlayers(
+		testContext(),
+		"room-1",
+		players,
+	)
+	if err != nil {
+		t.Fatalf("second replace players: %v", err)
+	}
+
+	if updated {
+		t.Fatal("expected unchanged players not to update room")
 	}
 }

@@ -115,6 +115,7 @@ func New() (*App, error) {
 	roomConsumer := consumers.NewRoomConsumer(
 		natsClient,
 		hub,
+		roomService,
 	)
 
 	if err := roomConsumer.Start(); err != nil {

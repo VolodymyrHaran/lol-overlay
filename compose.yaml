@@ -17,6 +17,8 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_DATABASE: ${REDIS_DATABASE}
 
+      NATS_URL: nats://nats:4222
+
       ROOM_CACHE_TTL: ${ROOM_CACHE_TTL}
       HTTP_ADDRESS: 0.0.0.0:8080
       LOG_LEVEL: ${LOG_LEVEL}
@@ -27,6 +29,8 @@ services:
 
       redis:
         condition: service_healthy
+      nats:
+        condition: service_started
     healthcheck:
       test:
         [

@@ -21,6 +21,8 @@ The application automatically detects the current Champion Select session, synch
 - 🐳 Docker support
 - 🎨 React + TypeScript frontend
 - 🌙 Modern UI built with Tailwind CSS + shadcn/ui
+- 📨 Event-driven room updates via NATS
+- ⏱ Event-driven cooldown synchronization without database polling
 
 ---
 
@@ -36,6 +38,8 @@ The application automatically detects the current Champion Select session, synch
 - Prometheus
 - Swagger
 - Repository Pattern
+- NATS
+- Event-driven architecture
 
 ### Frontend
 
@@ -58,14 +62,36 @@ League Client (LCU)
           ▼
      RoomService
           │
- ┌────────┴─────────┐
- │                  │
- ▼                  ▼
-Current Room WS   Room WS
- │                  │
- ▼                  ▼
- React UI       Live Updates
+          │ EventPublisher
+          ▼
+       Core NATS
+          │
+          ▼
+     RoomConsumer
+          │
+          ├── room.current.changed
+          │         │
+          │         ▼
+          │   Current Room WebSocket
+          │
+          └── room.updated
+                    │
+                    ▼
+              Room WebSocket
+                    │
+                    ▼
+                 React UI
 ```
+
+`RoomService` depends on an `EventPublisher` interface rather than directly
+on the NATS connection or WebSocket Hub. `RoomConsumer` receives transient
+events, loads the latest room state through the repository/cache layer, and
+broadcasts it to connected WebSocket clients.
+
+Core NATS is currently used with at-most-once delivery. Events are transient:
+if an update is lost, clients recover the latest state when reconnecting.
+JetStream is planned for scenarios requiring durable delivery, acknowledgements,
+retries, and replay.
 
 ---
 
@@ -79,6 +105,8 @@ backend
 │   ├── app/
 │   ├── cache/
 │   ├── config/
+│   ├── consumers/
+│   ├── messaging/
 │   ├── handlers/
 │   ├── middleware/
 │   ├── models/
@@ -100,6 +128,7 @@ frontend
 ```
 
 ---
+
 
 ## API
 
@@ -132,8 +161,23 @@ POST /rooms/{roomId}/spells/toggle
 ```
 GET /metrics
 ```
+## NATS Events
 
----
+### Current room changed
+
+Subject:
+
+```text
+room.current.changed
+```
+```json
+{
+  "roomId": "7961620711-1"
+}
+```
+
+An empty `roomId` means that the current Champion Select session has ended.
+--- 
 
 ## WebSocket API
 
@@ -239,11 +283,19 @@ Swagger
 - Cooldown calculation
 - Cooldown persistence during Champion Select
 - WebSocket-based frontend synchronization
+- Core NATS event publishing and consumption
+- Event-driven current-room synchronization
+- Event-driven room and cooldown updates
+- Room update deduplication
+- WebSocket updates without database polling
 
 ---
 
 ## Roadmap
-
+- [x] Core NATS integration
+- [ ] NATS delivery semantics and queue groups
+- [ ] NATS JetStream
+- [ ] Transactional outbox
 - [ ] Electron desktop application
 - [ ] Riot Data Dragon integration
 - [ ] Champion icons cache

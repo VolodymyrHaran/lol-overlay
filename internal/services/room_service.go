@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"reflect"
 	"sync"
 	"time"
 
@@ -116,7 +117,39 @@ func (s *RoomService) AddPlayer(
 	player models.Player,
 ) (bool, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+
+	updated, err := s.addPlayerLocked(
+		ctx,
+		roomID,
+		player,
+	)
+
+	s.mu.Unlock()
+
+	if err != nil {
+		return false, err
+	}
+
+	if !updated {
+		return false, nil
+	}
+
+	if err := s.publishRoomUpdated(roomID); err != nil {
+		log.Printf(
+			"publish room updated after adding player: room=%q error=%v",
+			roomID,
+			err,
+		)
+	}
+
+	return true, nil
+}
+
+func (s *RoomService) addPlayerLocked(
+	ctx context.Context,
+	roomID string,
+	player models.Player,
+) (bool, error) {
 
 	room, exists, err := s.repository.Get(ctx, roomID)
 	if err != nil {
@@ -200,36 +233,66 @@ func (s *RoomService) RefreshCooldowns(
 	ctx context.Context,
 ) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
-	rooms, err := s.repository.GetAll(ctx)
+	updatedRoomIDs, err :=
+		s.refreshCooldownsLocked(ctx)
+
+	s.mu.Unlock()
+
 	if err != nil {
-		return fmt.Errorf(
-			"get rooms for cooldown refresh: %w",
-			err,
-		)
+		return err
 	}
 
-	for _, room := range rooms {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		changed := refreshRoomCooldowns(room)
-		if !changed {
-			continue
-		}
-
-		if err := s.repository.Save(ctx, room); err != nil {
-			return fmt.Errorf(
-				"save room %q after cooldown refresh: %w",
-				room.Id,
+	for _, roomID := range updatedRoomIDs {
+		if err := s.publishRoomUpdated(roomID); err != nil {
+			log.Printf(
+				"publish room updated after cooldown refresh: room=%q error=%v",
+				roomID,
 				err,
 			)
 		}
 	}
 
 	return nil
+}
+
+func (s *RoomService) refreshCooldownsLocked(
+	ctx context.Context,
+) ([]string, error) {
+	rooms, err := s.repository.GetAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"get rooms for cooldown refresh: %w",
+			err,
+		)
+	}
+
+	updatedRoomIDs := make([]string, 0)
+
+	for _, room := range rooms {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		if !refreshRoomCooldowns(room) {
+			continue
+		}
+
+		if err := s.repository.Save(ctx, room); err != nil {
+			return nil, fmt.Errorf(
+				"save room %q after cooldown refresh: %w",
+				room.Id,
+				err,
+			)
+		}
+
+		updatedRoomIDs = append(
+			updatedRoomIDs,
+			room.Id,
+		)
+	}
+
+	return updatedRoomIDs, nil
 }
 
 func refreshRoomCooldowns(room *models.Room) bool {
@@ -372,6 +435,14 @@ func (s *RoomService) SyncFromChampSelect(
 		return false, nil
 	}
 
+	if err := s.publishRoomUpdated(roomID); err != nil {
+		log.Printf(
+			"publish room updated: room=%q error=%v",
+			roomID,
+			err,
+		)
+	}
+
 	s.SetCurrentRoomID(roomID)
 
 	return true, nil
@@ -401,6 +472,10 @@ func (s *RoomService) ReplacePlayers(
 	for i := range players {
 		newPlayer := &players[i]
 
+		if newPlayer.Spells == nil {
+			newPlayer.Spells = []models.SummonerSpell{}
+		}
+
 		oldPlayer := FindPlayerByRiotId(
 			room,
 			newPlayer.GameName,
@@ -410,6 +485,10 @@ func (s *RoomService) ReplacePlayers(
 		if oldPlayer != nil {
 			CopySpellState(oldPlayer, newPlayer)
 		}
+	}
+
+	if reflect.DeepEqual(room.Players, players) {
+		return false, nil
 	}
 
 	room.Players = players
@@ -429,8 +508,43 @@ func (s *RoomService) ToggleSpellByRiotId(
 	spellName string,
 ) (bool, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
+	updated, err := s.toggleSpellByRiotIDLocked(
+		ctx,
+		roomID,
+		gameName,
+		tagLine,
+		spellName,
+	)
+
+	s.mu.Unlock()
+
+	if err != nil {
+		return false, err
+	}
+
+	if !updated {
+		return false, nil
+	}
+
+	if err := s.publishRoomUpdated(roomID); err != nil {
+		log.Printf(
+			"publish room updated after spell toggle: room=%q error=%v",
+			roomID,
+			err,
+		)
+	}
+
+	return true, nil
+}
+
+func (s *RoomService) toggleSpellByRiotIDLocked(
+	ctx context.Context,
+	roomID string,
+	gameName string,
+	tagLine string,
+	spellName string,
+) (bool, error) {
 	room, exists, err := s.repository.Get(ctx, roomID)
 	if err != nil {
 		return false, fmt.Errorf(
@@ -598,6 +712,27 @@ func (s *RoomService) publishCurrentRoomChanged(
 
 	return s.publisher.Publish(
 		messaging.SubjectCurrentRoomChanged,
+		data,
+	)
+}
+
+func (s *RoomService) publishRoomUpdated(
+	roomID string,
+) error {
+	event := messaging.RoomUpdatedEvent{
+		RoomID: roomID,
+	}
+
+	data, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf(
+			"marshal room updated event: %w",
+			err,
+		)
+	}
+
+	return s.publisher.Publish(
+		messaging.SubjectRoomUpdated,
 		data,
 	)
 }
