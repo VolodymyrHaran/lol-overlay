@@ -3,6 +3,9 @@ package messaging
 const (
 	SubjectCurrentRoomChanged = "room.current.changed"
 	SubjectRoomUpdated        = "room.updated"
+
+	SubjectGameStarted = "game.started"
+	SubjectGameEnded   = "game.ended"
 )
 
 type CurrentRoomChangedEvent struct {

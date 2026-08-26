@@ -66,6 +66,29 @@ func New() (*App, error) {
 		)
 	}
 
+	jetStreamContext, jetStreamCancel :=
+		context.WithTimeout(
+			context.Background(),
+			5*time.Second,
+		)
+
+	err = natsClient.EnsureGameEventsStream(
+		jetStreamContext,
+	)
+
+	jetStreamCancel()
+
+	if err != nil {
+		natsClient.Close()
+		redisClient.Close()
+		db.Close()
+
+		return nil, fmt.Errorf(
+			"initialize JetStream: %w",
+			err,
+		)
+	}
+
 	postgresRepository := roomrepo.NewRoomRepository(db)
 
 	roomCache := cache.NewRedisRoomCache(

@@ -6,10 +6,12 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 type Client struct {
-	conn *nats.Conn
+	conn      *nats.Conn
+	jetStream jetstream.JetStream
 }
 
 const (
@@ -72,8 +74,19 @@ func New(url string) (*Client, error) {
 		return nil, fmt.Errorf("connect to NATS: %w", err)
 	}
 
+	js, err := jetstream.New(conn)
+	if err != nil {
+		conn.Close()
+
+		return nil, fmt.Errorf(
+			"create JetStream client: %w",
+			err,
+		)
+	}
+
 	return &Client{
-		conn: conn,
+		conn:      conn,
+		jetStream: js,
 	}, nil
 }
 
