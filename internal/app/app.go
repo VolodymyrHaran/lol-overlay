@@ -35,6 +35,12 @@ type App struct {
 }
 
 func (a *App) Close() {
+	if a.NATS != nil {
+		if err := a.NATS.Drain(); err != nil {
+			log.Printf("drain NATS: %v", err)
+			a.NATS.Close()
+		}
+	}
 	if a.Redis != nil {
 		if err := a.Redis.Close(); err != nil {
 			log.Printf("close Redis: %v", err)
@@ -43,8 +49,5 @@ func (a *App) Close() {
 
 	if a.DB != nil {
 		a.DB.Close()
-	}
-	if a.NATS != nil {
-		a.NATS.Close()
 	}
 }

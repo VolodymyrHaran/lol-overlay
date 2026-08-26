@@ -11,10 +11,13 @@ type Client struct {
 	conn *nats.Conn
 }
 
-const flushTimeout = 5 * time.Second
+const (
+	flushTimeout = 5 * time.Second
+	drainTimeout = 5 * time.Second
+)
 
 func New(url string) (*Client, error) {
-	conn, err := nats.Connect(url)
+	conn, err := nats.Connect(url, nats.DrainTimeout(drainTimeout))
 	if err != nil {
 		return nil, fmt.Errorf("connect to NATS: %w", err)
 	}
@@ -58,6 +61,21 @@ func (c *Client) Flush() error {
 	); err != nil {
 		return fmt.Errorf(
 			"flush NATS connection: %w",
+			err,
+		)
+	}
+
+	return nil
+}
+
+func (c *Client) Drain() error {
+	if c == nil || c.conn == nil {
+		return nil
+	}
+
+	if err := c.conn.Drain(); err != nil {
+		return fmt.Errorf(
+			"drain NATS connection: %w",
 			err,
 		)
 	}
