@@ -1,0 +1,138 @@
+package consumers
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"lol-timer/internal/messaging"
+)
+
+func TestGameConsumerHandlesValidEvents(
+	t *testing.T,
+) {
+	metadata := messaging.EventMetadata{
+		EventID:    "event-1",
+		OccurredAt: time.Now().UTC(),
+		Version:    messaging.GameEventVersion,
+	}
+
+	startedData, err := json.Marshal(
+		messaging.GameStartedEvent{
+			EventMetadata: metadata,
+			GameID:        123,
+			RoomID:        "room-1",
+		},
+	)
+	if err != nil {
+		t.Fatalf("marshal started event: %v", err)
+	}
+
+	endedData, err := json.Marshal(
+		messaging.GameEndedEvent{
+			EventMetadata: metadata,
+			GameID:        123,
+			RoomID:        "room-1",
+		},
+	)
+	if err != nil {
+		t.Fatalf("marshal ended event: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		subject string
+		data    []byte
+	}{
+		{
+			name:    "game started",
+			subject: messaging.SubjectGameStarted,
+			data:    startedData,
+		},
+		{
+			name:    "game ended",
+			subject: messaging.SubjectGameEnded,
+			data:    endedData,
+		},
+	}
+
+	consumer := NewGameConsumer()
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := consumer.Handle(
+				test.subject,
+				test.data,
+			); err != nil {
+				t.Fatalf(
+					"handle event: %v",
+					err,
+				)
+			}
+		})
+	}
+}
+
+func TestGameConsumerRejectsInvalidEvents(
+	t *testing.T,
+) {
+	validMetadata := messaging.EventMetadata{
+		EventID:    "event-1",
+		OccurredAt: time.Now().UTC(),
+		Version:    messaging.GameEventVersion,
+	}
+
+	missingIDData, err := json.Marshal(
+		messaging.GameStartedEvent{
+			EventMetadata: messaging.EventMetadata{
+				OccurredAt: validMetadata.OccurredAt,
+				Version:    validMetadata.Version,
+			},
+			GameID: 123,
+			RoomID: "room-1",
+		},
+	)
+	if err != nil {
+		t.Fatalf(
+			"marshal missing ID event: %v",
+			err,
+		)
+	}
+
+	tests := []struct {
+		name    string
+		subject string
+		data    []byte
+	}{
+		{
+			name:    "invalid JSON",
+			subject: messaging.SubjectGameStarted,
+			data:    []byte(`{invalid`),
+		},
+		{
+			name:    "missing event ID",
+			subject: messaging.SubjectGameStarted,
+			data:    missingIDData,
+		},
+		{
+			name:    "unsupported subject",
+			subject: "game.unknown",
+			data:    []byte(`{}`),
+		},
+	}
+
+	consumer := NewGameConsumer()
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := consumer.Handle(
+				test.subject,
+				test.data,
+			); err == nil {
+				t.Fatal(
+					"expected event handling error",
+				)
+			}
+		})
+	}
+}

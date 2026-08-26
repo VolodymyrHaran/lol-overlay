@@ -23,6 +23,7 @@ The application automatically detects the current Champion Select session, synch
 - 🌙 Modern UI built with Tailwind CSS + shadcn/ui
 - 📨 Event-driven room updates via NATS
 - ⏱ Event-driven cooldown synchronization without database polling
+- 📦 Durable game lifecycle events via NATS JetStream
 
 ---
 
@@ -39,6 +40,7 @@ The application automatically detects the current Champion Select session, synch
 - Swagger
 - Repository Pattern
 - NATS
+- NATS JetStream
 - Event-driven architecture
 
 ### Frontend
@@ -57,30 +59,28 @@ The application automatically detects the current Champion Select session, synch
 League Client (LCU)
           │
           ▼
- Champion Select Sync
+ Champion Select / Gameflow Sync
           │
           ▼
-     RoomService
+          ├── RoomService ── Core NATS ── RoomConsumer
+          │                         │
+          │                         ├── room.current.changed
+          │                         └── room.updated
+          │                                  │
+          │                                  ▼
+          │                              WebSockets
+          │                                  │
+          │                                  ▼
+          │                               React UI
           │
-          │ EventPublisher
-          ▼
-       Core NATS
-          │
-          ▼
-     RoomConsumer
-          │
-          ├── room.current.changed
-          │         │
-          │         ▼
-          │   Current Room WebSocket
-          │
-          └── room.updated
-                    │
-                    ▼
-              Room WebSocket
-                    │
-                    ▼
-                 React UI
+          └── GameLifecycleService
+                         │
+                         ▼
+                  NATS JetStream
+                    GAME_EVENTS
+                         │
+                         ▼
+                   GameConsumer
 ```
 
 `RoomService` depends on an `EventPublisher` interface rather than directly
@@ -88,10 +88,17 @@ on the NATS connection or WebSocket Hub. `RoomConsumer` receives transient
 events, loads the latest room state through the repository/cache layer, and
 broadcasts it to connected WebSocket clients.
 
-Core NATS is currently used with at-most-once delivery. Events are transient:
-if an update is lost, clients recover the latest state when reconnecting.
-JetStream is planned for scenarios requiring durable delivery, acknowledgements,
-retries, and replay.
+Core NATS is used for transient room notifications with at-most-once delivery.
+If an update is lost, clients recover the latest state from PostgreSQL/Redis when
+reconnecting or receiving a later update.
+
+NATS JetStream is used for durable game lifecycle events. The `GAME_EVENTS`
+stream stores `game.started` and `game.ended`. Events include a unique event ID,
+occurrence time and schema version. Publishers use the event ID as a JetStream
+message ID, allowing duplicate publications to be deduplicated. The durable
+consumer uses explicit acknowledgements, delayed negative acknowledgements and
+limited redelivery, providing at-least-once delivery. Consumers must therefore
+process these events idempotently.
 
 ---
 
@@ -177,6 +184,42 @@ room.current.changed
 ```
 
 An empty `roomId` means that the current Champion Select session has ended.
+
+### Room updated
+
+Subject:
+
+```text
+room.updated
+```
+
+This transient notification tells `RoomConsumer` to load the latest room state
+and broadcast it to connected WebSocket clients.
+
+### Game started and ended
+
+JetStream subjects:
+
+```text
+game.started
+game.ended
+```
+
+Example:
+
+```json
+{
+  "eventId": "550e8400-e29b-41d4-a716-446655440000",
+  "occurredAt": "2026-08-26T15:00:00Z",
+  "version": 1,
+  "gameId": 123456789,
+  "roomId": "7961620711-1"
+}
+```
+
+These events are stored in the `GAME_EVENTS` stream and processed by the
+`game-events-processor` durable consumer.
+
 --- 
 
 ## WebSocket API
@@ -217,6 +260,14 @@ Message
 
 ## Running locally
 
+### Infrastructure
+
+Start PostgreSQL, Redis, NATS JetStream, Prometheus and Grafana:
+
+```bash
+docker compose up -d
+```
+
 ### Backend
 
 ```bash
@@ -235,10 +286,17 @@ npm run dev
 
 ---
 
-## Docker
+## Tests
 
 ```bash
-docker compose up -d
+go test ./...
+go vet ./...
+```
+
+JetStream integration tests require the NATS service to be running:
+
+```bash
+go test -tags=integration ./internal/messaging -v
 ```
 
 ---
@@ -269,6 +327,12 @@ Swagger
 /swagger/index.html
 ```
 
+NATS monitoring
+
+```text
+http://localhost:8222
+```
+
 ---
 
 ## Current Features
@@ -288,13 +352,21 @@ Swagger
 - Event-driven room and cooldown updates
 - Room update deduplication
 - WebSocket updates without database polling
+- Automatic game lifecycle detection from LCU gameflow phases
+- Durable `game.started` and `game.ended` events
+- JetStream publisher deduplication by event ID
+- Durable consumer with explicit ACK, delayed NAK and redelivery
+- Unit and integration coverage for lifecycle, deduplication and redelivery
 
 ---
 
 ## Roadmap
 - [x] Core NATS integration
-- [ ] NATS delivery semantics and queue groups
-- [ ] NATS JetStream
+- [x] NATS delivery semantics documented
+- [x] NATS JetStream
+- [x] Durable game lifecycle publisher and consumer
+- [ ] Idempotent game event processing
+- [ ] Dead-letter strategy
 - [ ] Transactional outbox
 - [ ] Electron desktop application
 - [ ] Riot Data Dragon integration

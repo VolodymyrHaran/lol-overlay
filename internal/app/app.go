@@ -1,9 +1,11 @@
 package app
 
 import (
+	"context"
 	"log"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"lol-timer/internal/cache"
 	"lol-timer/internal/config"
@@ -29,12 +31,35 @@ type App struct {
 	RoomHandler    *handlers.RoomHandler
 
 	NATS *messaging.Client
-	Hub  *websocket.Hub
+
+	GameEventsConsumer *messaging.ConsumerHandle
+
+	Hub *websocket.Hub
 
 	server *http.Server
 }
 
 func (a *App) Close() {
+
+	if a.GameEventsConsumer != nil {
+		drainContext, drainCancel :=
+			context.WithTimeout(
+				context.Background(),
+				5*time.Second,
+			)
+
+		if err := a.GameEventsConsumer.Drain(
+			drainContext,
+		); err != nil {
+			log.Printf(
+				"drain game events consumer: %v",
+				err,
+			)
+		}
+
+		drainCancel()
+	}
+
 	if a.NATS != nil {
 		if err := a.NATS.Drain(); err != nil {
 			log.Printf("drain NATS: %v", err)

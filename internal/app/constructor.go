@@ -152,6 +152,33 @@ func New() (*App, error) {
 		)
 	}
 
+	gameConsumer := consumers.NewGameConsumer()
+
+	gameConsumerContext, gameConsumerCancel :=
+		context.WithTimeout(
+			context.Background(),
+			5*time.Second,
+		)
+
+	gameConsumerHandle, err :=
+		natsClient.StartGameEventsConsumer(
+			gameConsumerContext,
+			gameConsumer.Handle,
+		)
+
+	gameConsumerCancel()
+
+	if err != nil {
+		natsClient.Close()
+		redisClient.Close()
+		db.Close()
+
+		return nil, fmt.Errorf(
+			"start game events consumer: %w",
+			err,
+		)
+	}
+
 	server := &http.Server{
 		Addr:              cfg.HTTPAddress,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -175,6 +202,8 @@ func New() (*App, error) {
 		RoomHandler:    roomHandler,
 
 		Hub: hub,
+
+		GameEventsConsumer: gameConsumerHandle,
 
 		server: server,
 	}, nil

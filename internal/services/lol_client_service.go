@@ -176,6 +176,7 @@ func (s *LolClientService) GetLocalPlayerTeam(session *models.ChampSelectSession
 func (s *LolClientService) StartChampSelectSync(
 	ctx context.Context,
 	roomService *RoomService,
+	gameLifecycleService *GameLifecycleService,
 ) {
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
@@ -193,10 +194,24 @@ func (s *LolClientService) StartChampSelectSync(
 				}
 
 				if phase != "ChampSelect" {
+					if err := gameLifecycleService.Observe(
+						ctx,
+						phase,
+						0,
+						"",
+					); err != nil {
+						log.Printf(
+							"observe game lifecycle: phase=%q error=%v",
+							phase,
+							err,
+						)
+					}
+
 					roomID := roomService.GetCurrentRoomID()
 					if roomID != "" {
 						roomService.ClearCurrentRoomID(roomID)
 					}
+
 					continue
 				}
 
@@ -208,6 +223,19 @@ func (s *LolClientService) StartChampSelectSync(
 				roomID := BuildRoomId(session)
 				if roomID == "" {
 					continue
+				}
+
+				if err := gameLifecycleService.Observe(
+					ctx,
+					phase,
+					session.GameId,
+					roomID,
+				); err != nil {
+					log.Printf(
+						"observe game lifecycle: phase=%q error=%v",
+						phase,
+						err,
+					)
 				}
 
 				if _, err := roomService.CreateRoom(
