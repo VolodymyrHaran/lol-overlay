@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -17,7 +18,56 @@ const (
 )
 
 func New(url string) (*Client, error) {
-	conn, err := nats.Connect(url, nats.DrainTimeout(drainTimeout))
+	conn, err := nats.Connect(url,
+		nats.Name("lol-group-helper"),
+		nats.DrainTimeout(drainTimeout),
+		nats.DisconnectErrHandler(
+			func(_ *nats.Conn, err error) {
+				slog.Warn(
+					"NATS disconnected",
+					"error", err,
+				)
+			},
+		),
+		nats.ReconnectHandler(
+			func(conn *nats.Conn) {
+				slog.Info(
+					"NATS reconnected",
+					"url", conn.ConnectedUrlRedacted(),
+				)
+			},
+		),
+		nats.ClosedHandler(
+			func(conn *nats.Conn) {
+				if err := conn.LastError(); err != nil {
+					slog.Error(
+						"NATS connection closed with error",
+						"error", err,
+					)
+					return
+				}
+				slog.Info("NATS connection closed")
+			},
+		),
+		nats.ErrorHandler(
+			func(
+				_ *nats.Conn,
+				subscription *nats.Subscription,
+				err error,
+			) {
+				subject := ""
+				if subscription != nil {
+					subject = subscription.Subject
+				}
+				slog.Error(
+					"NATS asynchronous error",
+					"subject", subject,
+					"error", err,
+				)
+			},
+		),
+	)
+
 	if err != nil {
 		return nil, fmt.Errorf("connect to NATS: %w", err)
 	}
