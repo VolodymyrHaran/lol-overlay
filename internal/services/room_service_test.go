@@ -2,7 +2,10 @@ package services
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"lol-timer/internal/constants"
+	"lol-timer/internal/messaging"
 	"lol-timer/internal/models"
 	"lol-timer/internal/repositories"
 	"net/http"
@@ -10,7 +13,42 @@ import (
 	"time"
 )
 
+type failingEventPublisher struct {
+	err error
+}
+
+func (p failingEventPublisher) Publish(
+	subject string,
+	data []byte,
+) error {
+	return p.err
+}
+
 type noopEventPublisher struct{}
+
+type publishedEvent struct {
+	subject string
+	data    []byte
+}
+
+type recordingEventPublisher struct {
+	events []publishedEvent
+}
+
+func (p *recordingEventPublisher) Publish(
+	subject string,
+	data []byte,
+) error {
+	p.events = append(
+		p.events,
+		publishedEvent{
+			subject: subject,
+			data:    append([]byte(nil), data...),
+		},
+	)
+
+	return nil
+}
 
 func (noopEventPublisher) Publish(
 	subject string,
@@ -747,5 +785,298 @@ func TestReplacePlayersReturnsFalseWhenPlayersUnchanged(
 
 	if updated {
 		t.Fatal("expected unchanged players not to update room")
+	}
+}
+
+func TestSetCurrentRoomIDPublishesOnlyWhenChanged(
+	t *testing.T,
+) {
+	publisher := &recordingEventPublisher{}
+
+	service := NewRoomService(
+		repositories.NewInMemoryRoomRepository(),
+		newTestChampionService(),
+		publisher,
+	)
+
+	service.SetCurrentRoomID("room-1")
+	service.SetCurrentRoomID("room-1")
+
+	if len(publisher.events) != 1 {
+		t.Fatalf(
+			"expected 1 event, got %d",
+			len(publisher.events),
+		)
+	}
+
+	published := publisher.events[0]
+
+	if published.subject !=
+		messaging.SubjectCurrentRoomChanged {
+		t.Fatalf(
+			"expected subject %q, got %q",
+			messaging.SubjectCurrentRoomChanged,
+			published.subject,
+		)
+	}
+
+	var event messaging.CurrentRoomChangedEvent
+
+	if err := json.Unmarshal(
+		published.data,
+		&event,
+	); err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	if event.RoomID != "room-1" {
+		t.Errorf(
+			"expected room ID %q, got %q",
+			"room-1",
+			event.RoomID,
+		)
+	}
+}
+
+func TestClearCurrentRoomIDPublishesEmptyRoomID(
+	t *testing.T,
+) {
+	publisher := &recordingEventPublisher{}
+
+	service := NewRoomService(
+		repositories.NewInMemoryRoomRepository(),
+		newTestChampionService(),
+		publisher,
+	)
+
+	service.SetCurrentRoomID("room-1")
+
+	publisher.events = nil
+
+	service.ClearCurrentRoomID("another-room")
+
+	if len(publisher.events) != 0 {
+		t.Fatalf(
+			"expected no event for a different room, got %d",
+			len(publisher.events),
+		)
+	}
+
+	service.ClearCurrentRoomID("room-1")
+
+	if len(publisher.events) != 1 {
+		t.Fatalf(
+			"expected 1 clear event, got %d",
+			len(publisher.events),
+		)
+	}
+
+	published := publisher.events[0]
+
+	if published.subject !=
+		messaging.SubjectCurrentRoomChanged {
+		t.Fatalf(
+			"expected subject %q, got %q",
+			messaging.SubjectCurrentRoomChanged,
+			published.subject,
+		)
+	}
+
+	var event messaging.CurrentRoomChangedEvent
+
+	if err := json.Unmarshal(
+		published.data,
+		&event,
+	); err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	if event.RoomID != "" {
+		t.Errorf(
+			"expected empty room ID, got %q",
+			event.RoomID,
+		)
+	}
+}
+
+func TestSyncFromChampSelectPublishesRoomUpdatedOnlyOnChange(
+	t *testing.T,
+) {
+	publisher := &recordingEventPublisher{}
+
+	service := NewRoomService(
+		repositories.NewInMemoryRoomRepository(),
+		newTestChampionService(),
+		publisher,
+	)
+
+	const roomID = "room-1"
+
+	mustCreateRoom(t, service, roomID)
+
+	session := &models.ChampSelectSession{
+		LocalPlayerCellId: 1,
+		MyTeam: []models.ChampSelectPlayer{
+			{
+				CellId:     1,
+				GameName:   "Player",
+				TagLine:    "EUW",
+				ChampionId: 103,
+				Spell1Id:   4,
+				Spell2Id:   14,
+				Team:       100,
+			},
+		},
+	}
+
+	updated, err := service.SyncFromChampSelect(
+		testContext(),
+		roomID,
+		session,
+	)
+	if err != nil {
+		t.Fatalf("first synchronization: %v", err)
+	}
+
+	if !updated {
+		t.Fatal("expected first synchronization to update room")
+	}
+
+	roomUpdatedEvents := make(
+		[]publishedEvent,
+		0,
+	)
+
+	for _, event := range publisher.events {
+		if event.subject ==
+			messaging.SubjectRoomUpdated {
+			roomUpdatedEvents = append(
+				roomUpdatedEvents,
+				event,
+			)
+		}
+	}
+
+	if len(roomUpdatedEvents) != 1 {
+		t.Fatalf(
+			"expected 1 room updated event, got %d",
+			len(roomUpdatedEvents),
+		)
+	}
+
+	var event messaging.RoomUpdatedEvent
+
+	if err := json.Unmarshal(
+		roomUpdatedEvents[0].data,
+		&event,
+	); err != nil {
+		t.Fatalf("decode room updated event: %v", err)
+	}
+
+	if event.RoomID != roomID {
+		t.Errorf(
+			"expected room ID %q, got %q",
+			roomID,
+			event.RoomID,
+		)
+	}
+
+	publisher.events = nil
+
+	updated, err = service.SyncFromChampSelect(
+		testContext(),
+		roomID,
+		session,
+	)
+	if err != nil {
+		t.Fatalf("second synchronization: %v", err)
+	}
+
+	if updated {
+		t.Fatal(
+			"expected unchanged synchronization not to update room",
+		)
+	}
+
+	if len(publisher.events) != 0 {
+		t.Fatalf(
+			"expected no events for unchanged room, got %d",
+			len(publisher.events),
+		)
+	}
+}
+
+func TestSyncFromChampSelectSucceedsWhenPublisherFails(
+	t *testing.T,
+) {
+	publisherError := errors.New(
+		"NATS is unavailable",
+	)
+
+	service := NewRoomService(
+		repositories.NewInMemoryRoomRepository(),
+		newTestChampionService(),
+		failingEventPublisher{
+			err: publisherError,
+		},
+	)
+
+	const roomID = "room-1"
+
+	mustCreateRoom(t, service, roomID)
+
+	session := &models.ChampSelectSession{
+		LocalPlayerCellId: 1,
+		MyTeam: []models.ChampSelectPlayer{
+			{
+				CellId:     1,
+				GameName:   "Player",
+				TagLine:    "EUW",
+				ChampionId: 103,
+				Spell1Id:   4,
+				Spell2Id:   14,
+				Team:       100,
+			},
+		},
+	}
+
+	updated, err := service.SyncFromChampSelect(
+		testContext(),
+		roomID,
+		session,
+	)
+	if err != nil {
+		t.Fatalf(
+			"expected synchronization to succeed: %v",
+			err,
+		)
+	}
+
+	if !updated {
+		t.Fatal("expected room to be updated")
+	}
+
+	room := mustGetRoom(t, service, roomID)
+
+	if len(room.Players) != 1 {
+		t.Fatalf(
+			"expected 1 persisted player, got %d",
+			len(room.Players),
+		)
+	}
+
+	if room.Players[0].Champion != "Ahri" {
+		t.Errorf(
+			"expected champion Ahri, got %q",
+			room.Players[0].Champion,
+		)
+	}
+
+	if actual := service.GetCurrentRoomID(); actual != roomID {
+		t.Errorf(
+			"expected current room %q, got %q",
+			roomID,
+			actual,
+		)
 	}
 }

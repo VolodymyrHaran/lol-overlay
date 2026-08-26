@@ -108,9 +108,9 @@ func (c *RoomConsumer) Start() error {
 			c.hub.BroadcastRoomUpdate(room)
 		},
 	)
-	if err != nil {
+	if err := c.nats.Flush(); err != nil {
 		return fmt.Errorf(
-			"subscribe room updated: %w",
+			"confirm room subscriptions: %w",
 			err,
 		)
 	}

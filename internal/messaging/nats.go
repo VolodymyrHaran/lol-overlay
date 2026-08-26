@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/nats-io/nats.go"
 )
@@ -9,6 +10,8 @@ import (
 type Client struct {
 	conn *nats.Conn
 }
+
+const flushTimeout = 5 * time.Second
 
 func New(url string) (*Client, error) {
 	conn, err := nats.Connect(url)
@@ -47,4 +50,17 @@ func (c *Client) Close() {
 	}
 
 	c.conn.Close()
+}
+
+func (c *Client) Flush() error {
+	if err := c.conn.FlushTimeout(
+		flushTimeout,
+	); err != nil {
+		return fmt.Errorf(
+			"flush NATS connection: %w",
+			err,
+		)
+	}
+
+	return nil
 }
