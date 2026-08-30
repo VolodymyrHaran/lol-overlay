@@ -5,15 +5,6 @@ import (
 	"time"
 )
 
-type ProcessedEventRepository interface {
-	TryMarkProcessed(
-		ctx context.Context,
-		consumerName string,
-		eventID string,
-		subject string,
-	) (bool, error)
-}
-
 type ProcessedEventCleaner interface {
 	DeleteProcessedBefore(
 		ctx context.Context,

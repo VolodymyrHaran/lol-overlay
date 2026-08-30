@@ -23,8 +23,9 @@ PostgreSQL is the source of truth for room state. Room events only notify
 consumers that the latest state should be loaded and broadcast to WebSocket
 clients.
 
-Game lifecycle events may later trigger statistics, analytics and other
-business operations. Losing these events is not acceptable.
+Game lifecycle events persist game sessions and may later trigger statistics,
+analytics and other business operations. Losing these events is not
+acceptable.
 
 ## Decision
 
@@ -93,6 +94,16 @@ A duplicate is treated as successfully handled and acknowledged. A PostgreSQL
 error is returned to the JetStream callback, causing negative acknowledgement
 and redelivery.
 
+Inbox claiming and game-session persistence are executed in one PostgreSQL
+transaction. `game.started` inserts or updates `game_sessions`, while
+`game.ended` sets the end time of an existing session. If the business change
+fails, the inbox marker is rolled back as part of the same transaction. A
+redelivered message can therefore retry the complete operation safely.
+
+The consumer does not call a standalone `TryMarkProcessed` operation. This
+prevents the failure window in which a marker could be committed before the
+corresponding business change.
+
 Processed event markers are retained for 30 days. A background cleanup runs
 once per day and removes older markers. The retention period is longer than
 the seven-day maximum age of the `GAME_EVENTS` stream.
@@ -133,6 +144,7 @@ Advantages:
 - explicit acknowledgement and retry behavior;
 - publisher-side deduplication;
 - consumer-side idempotency;
+- atomic inbox claiming and game-session persistence;
 - durable dead-letter storage for poison messages;
 - observable delivery outcomes;
 - bounded inbox-table growth;
@@ -144,7 +156,6 @@ Trade-offs:
 - JetStream provides at-least-once rather than exactly-once delivery;
 - consumers must remain idempotent;
 - producer database changes and event publication are not atomic;
-- inbox markers and future business changes must share a transaction;
 - dead-letter messages currently require manual inspection and replay.
 
 ## Verification
@@ -157,12 +168,12 @@ The implementation is covered by:
 - JetStream unacknowledged-message redelivery integration tests;
 - JetStream dead-letter routing integration tests;
 - consumer duplicate and repository-error tests;
-- PostgreSQL inbox repository integration tests;
+- PostgreSQL transactional game-event repository integration tests;
+- rollback verification for failed game-session changes;
 - processed-event retention tests.
 
 ## Future work
 
-- transactional inbox processing with business changes;
 - transactional outbox for atomic database changes and event publication;
 - alerts and dashboards for retry and dead-letter metrics;
 - controlled replay tooling for dead-letter events.

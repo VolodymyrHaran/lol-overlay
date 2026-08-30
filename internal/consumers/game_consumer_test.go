@@ -8,33 +8,41 @@ import (
 	"time"
 
 	"lol-timer/internal/messaging"
+	"lol-timer/internal/repositories"
 )
 
-type processedEventRepositoryStub struct {
-	tryMarkProcessed func(
+type gameEventRepositoryStub struct {
+	processGameStarted func(
 		ctx context.Context,
-		consumerName string,
-		eventID string,
-		subject string,
+		event repositories.GameEvent,
+	) (bool, error)
+
+	processGameEnded func(
+		ctx context.Context,
+		event repositories.GameEvent,
 	) (bool, error)
 }
 
-func (s *processedEventRepositoryStub) TryMarkProcessed(
+func (s *gameEventRepositoryStub) ProcessGameStarted(
 	ctx context.Context,
-	consumerName string,
-	eventID string,
-	subject string,
+	event repositories.GameEvent,
 ) (bool, error) {
-	if s.tryMarkProcessed == nil {
+	if s.processGameStarted == nil {
 		return true, nil
 	}
 
-	return s.tryMarkProcessed(
-		ctx,
-		consumerName,
-		eventID,
-		subject,
-	)
+	return s.processGameStarted(ctx, event)
+}
+
+func (s *gameEventRepositoryStub) ProcessGameEnded(
+	ctx context.Context,
+	event repositories.GameEvent,
+) (bool, error) {
+	if s.processGameEnded == nil {
+		return true, nil
+	}
+
+	return s.processGameEnded(ctx, event)
 }
 
 func TestGameConsumerHandlesValidEvents(
@@ -85,7 +93,9 @@ func TestGameConsumerHandlesValidEvents(
 		},
 	}
 
-	consumer := NewGameConsumer(&processedEventRepositoryStub{})
+	consumer := NewGameConsumer(
+		&gameEventRepositoryStub{},
+	)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -151,7 +161,9 @@ func TestGameConsumerRejectsInvalidEvents(
 		},
 	}
 
-	consumer := NewGameConsumer(&processedEventRepositoryStub{})
+	consumer := NewGameConsumer(
+		&gameEventRepositoryStub{},
+	)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -186,12 +198,10 @@ func TestGameConsumerSkipsDuplicateEvent(
 		t.Fatalf("marshal event: %v", err)
 	}
 
-	repository := &processedEventRepositoryStub{
-		tryMarkProcessed: func(
+	repository := &gameEventRepositoryStub{
+		processGameStarted: func(
 			ctx context.Context,
-			consumerName string,
-			eventID string,
-			subject string,
+			event repositories.GameEvent,
 		) (bool, error) {
 			return false, nil
 		},
@@ -214,7 +224,9 @@ func TestGameConsumerSkipsDuplicateEvent(
 func TestGameConsumerReturnsRepositoryError(
 	t *testing.T,
 ) {
-	expectedErr := errors.New("database unavailable")
+	expectedErr := errors.New(
+		"database unavailable",
+	)
 
 	data, err := json.Marshal(
 		messaging.GameStartedEvent{
@@ -231,12 +243,10 @@ func TestGameConsumerReturnsRepositoryError(
 		t.Fatalf("marshal event: %v", err)
 	}
 
-	repository := &processedEventRepositoryStub{
-		tryMarkProcessed: func(
+	repository := &gameEventRepositoryStub{
+		processGameStarted: func(
 			ctx context.Context,
-			consumerName string,
-			eventID string,
-			subject string,
+			event repositories.GameEvent,
 		) (bool, error) {
 			return false, expectedErr
 		},
@@ -257,14 +267,16 @@ func TestGameConsumerReturnsRepositoryError(
 	}
 }
 
-func TestGameConsumerMarksEndedSubject(
+func TestGameConsumerMapsStartedEvent(
 	t *testing.T,
 ) {
+	occurredAt := time.Now().UTC()
+
 	data, err := json.Marshal(
-		messaging.GameEndedEvent{
+		messaging.GameStartedEvent{
 			EventMetadata: messaging.EventMetadata{
-				EventID:    "event-ended",
-				OccurredAt: time.Now().UTC(),
+				EventID:    "event-started",
+				OccurredAt: occurredAt,
 				Version:    messaging.GameEventVersion,
 			},
 			GameID: 123,
@@ -275,16 +287,109 @@ func TestGameConsumerMarksEndedSubject(
 		t.Fatalf("marshal event: %v", err)
 	}
 
-	var actualSubject string
+	var actual repositories.GameEvent
 
-	repository := &processedEventRepositoryStub{
-		tryMarkProcessed: func(
+	repository := &gameEventRepositoryStub{
+		processGameStarted: func(
 			ctx context.Context,
-			consumerName string,
-			eventID string,
-			subject string,
+			event repositories.GameEvent,
 		) (bool, error) {
-			actualSubject = subject
+			actual = event
+			return true, nil
+		},
+	}
+
+	consumer := NewGameConsumer(repository)
+
+	if err := consumer.Handle(
+		context.Background(),
+		messaging.SubjectGameStarted,
+		data,
+	); err != nil {
+		t.Fatalf(
+			"handle started event: %v",
+			err,
+		)
+	}
+
+	if actual.ConsumerName !=
+		messaging.ConsumerGameEvents {
+		t.Errorf(
+			"expected consumer %q, got %q",
+			messaging.ConsumerGameEvents,
+			actual.ConsumerName,
+		)
+	}
+
+	if actual.EventID != "event-started" {
+		t.Errorf(
+			"expected event ID %q, got %q",
+			"event-started",
+			actual.EventID,
+		)
+	}
+
+	if actual.Subject !=
+		messaging.SubjectGameStarted {
+		t.Errorf(
+			"expected subject %q, got %q",
+			messaging.SubjectGameStarted,
+			actual.Subject,
+		)
+	}
+
+	if actual.GameID != 123 {
+		t.Errorf(
+			"expected game ID 123, got %d",
+			actual.GameID,
+		)
+	}
+
+	if actual.RoomID != "room-1" {
+		t.Errorf(
+			"expected room ID %q, got %q",
+			"room-1",
+			actual.RoomID,
+		)
+	}
+
+	if !actual.OccurredAt.Equal(occurredAt) {
+		t.Errorf(
+			"expected occurredAt %v, got %v",
+			occurredAt,
+			actual.OccurredAt,
+		)
+	}
+}
+
+func TestGameConsumerMapsEndedEvent(
+	t *testing.T,
+) {
+	occurredAt := time.Now().UTC()
+
+	data, err := json.Marshal(
+		messaging.GameEndedEvent{
+			EventMetadata: messaging.EventMetadata{
+				EventID:    "event-ended",
+				OccurredAt: occurredAt,
+				Version:    messaging.GameEventVersion,
+			},
+			GameID: 123,
+			RoomID: "room-1",
+		},
+	)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+
+	var actual repositories.GameEvent
+
+	repository := &gameEventRepositoryStub{
+		processGameEnded: func(
+			ctx context.Context,
+			event repositories.GameEvent,
+		) (bool, error) {
+			actual = event
 			return true, nil
 		},
 	}
@@ -296,14 +401,58 @@ func TestGameConsumerMarksEndedSubject(
 		messaging.SubjectGameEnded,
 		data,
 	); err != nil {
-		t.Fatalf("handle ended event: %v", err)
+		t.Fatalf(
+			"handle ended event: %v",
+			err,
+		)
 	}
 
-	if actualSubject != messaging.SubjectGameEnded {
+	if actual.ConsumerName !=
+		messaging.ConsumerGameEvents {
+		t.Errorf(
+			"expected consumer %q, got %q",
+			messaging.ConsumerGameEvents,
+			actual.ConsumerName,
+		)
+	}
+
+	if actual.EventID != "event-ended" {
+		t.Errorf(
+			"expected event ID %q, got %q",
+			"event-ended",
+			actual.EventID,
+		)
+	}
+
+	if actual.Subject !=
+		messaging.SubjectGameEnded {
 		t.Errorf(
 			"expected subject %q, got %q",
 			messaging.SubjectGameEnded,
-			actualSubject,
+			actual.Subject,
+		)
+	}
+
+	if actual.GameID != 123 {
+		t.Errorf(
+			"expected game ID 123, got %d",
+			actual.GameID,
+		)
+	}
+
+	if actual.RoomID != "room-1" {
+		t.Errorf(
+			"expected room ID %q, got %q",
+			"room-1",
+			actual.RoomID,
+		)
+	}
+
+	if !actual.OccurredAt.Equal(occurredAt) {
+		t.Errorf(
+			"expected occurredAt %v, got %v",
+			occurredAt,
+			actual.OccurredAt,
 		)
 	}
 }

@@ -11,14 +11,14 @@ import (
 )
 
 type GameConsumer struct {
-	processedEvents repositories.ProcessedEventRepository
+	gameEvents repositories.GameEventRepository
 }
 
 func NewGameConsumer(
-	processedEvents repositories.ProcessedEventRepository,
+	gameEvents repositories.GameEventRepository,
 ) *GameConsumer {
 	return &GameConsumer{
-		processedEvents: processedEvents,
+		gameEvents: gameEvents,
 	}
 }
 
@@ -48,10 +48,7 @@ func (c *GameConsumer) handleGameStarted(
 ) error {
 	var event messaging.GameStartedEvent
 
-	if err := json.Unmarshal(
-		data,
-		&event,
-	); err != nil {
+	if err := json.Unmarshal(data, &event); err != nil {
 		return fmt.Errorf(
 			"decode game started event: %w",
 			err,
@@ -69,16 +66,29 @@ func (c *GameConsumer) handleGameStarted(
 		)
 	}
 
-	created, err := c.tryMarkProcessed(
+	processed, err := c.gameEvents.ProcessGameStarted(
 		ctx,
-		messaging.SubjectGameStarted,
-		event.EventMetadata,
+		toRepositoryGameEvent(
+			messaging.SubjectGameStarted,
+			event.EventMetadata,
+			event.GameID,
+			event.RoomID,
+		),
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf(
+			"process game started event %q: %w",
+			event.EventID,
+			err,
+		)
 	}
 
-	if !created {
+	if !processed {
+		logDuplicateGameEvent(
+			messaging.SubjectGameStarted,
+			event.EventID,
+		)
+
 		return nil
 	}
 
@@ -100,10 +110,7 @@ func (c *GameConsumer) handleGameEnded(
 ) error {
 	var event messaging.GameEndedEvent
 
-	if err := json.Unmarshal(
-		data,
-		&event,
-	); err != nil {
+	if err := json.Unmarshal(data, &event); err != nil {
 		return fmt.Errorf(
 			"decode game ended event: %w",
 			err,
@@ -121,16 +128,29 @@ func (c *GameConsumer) handleGameEnded(
 		)
 	}
 
-	created, err := c.tryMarkProcessed(
+	processed, err := c.gameEvents.ProcessGameEnded(
 		ctx,
-		messaging.SubjectGameEnded,
-		event.EventMetadata,
+		toRepositoryGameEvent(
+			messaging.SubjectGameEnded,
+			event.EventMetadata,
+			event.GameID,
+			event.RoomID,
+		),
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf(
+			"process game ended event %q: %w",
+			event.EventID,
+			err,
+		)
 	}
 
-	if !created {
+	if !processed {
+		logDuplicateGameEvent(
+			messaging.SubjectGameEnded,
+			event.EventID,
+		)
+
 		return nil
 	}
 
@@ -144,6 +164,33 @@ func (c *GameConsumer) handleGameEnded(
 	)
 
 	return nil
+}
+
+func toRepositoryGameEvent(
+	subject string,
+	metadata messaging.EventMetadata,
+	gameID int64,
+	roomID string,
+) repositories.GameEvent {
+	return repositories.GameEvent{
+		ConsumerName: messaging.ConsumerGameEvents,
+		EventID:      metadata.EventID,
+		Subject:      subject,
+		GameID:       gameID,
+		RoomID:       roomID,
+		OccurredAt:   metadata.OccurredAt,
+	}
+}
+
+func logDuplicateGameEvent(
+	subject string,
+	eventID string,
+) {
+	slog.Info(
+		"duplicate game event skipped",
+		"event_id", eventID,
+		"subject", subject,
+	)
 }
 
 func validateConsumedGameEvent(
@@ -176,34 +223,4 @@ func validateConsumedGameEvent(
 	}
 
 	return nil
-}
-
-func (c *GameConsumer) tryMarkProcessed(
-	ctx context.Context,
-	subject string,
-	metadata messaging.EventMetadata,
-) (bool, error) {
-	created, err := c.processedEvents.TryMarkProcessed(
-		ctx,
-		messaging.ConsumerGameEvents,
-		metadata.EventID,
-		subject,
-	)
-	if err != nil {
-		return false, fmt.Errorf(
-			"mark game event %q as processed: %w",
-			metadata.EventID,
-			err,
-		)
-	}
-
-	if !created {
-		slog.Info(
-			"duplicate game event skipped",
-			"event_id", metadata.EventID,
-			"subject", subject,
-		)
-	}
-
-	return created, nil
 }

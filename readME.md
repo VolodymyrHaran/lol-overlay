@@ -103,6 +103,11 @@ idempotently. After five failed deliveries, events are moved to the
 `GAME_EVENTS_DLQ` stream. If the DLQ is unavailable, delivery continues so the
 source event is not silently lost.
 
+Game lifecycle consumption uses a transactional inbox. The `processed_events`
+marker and the corresponding `game_sessions` insert or update are committed in
+one PostgreSQL transaction. A failed business change rolls back the marker, so
+JetStream redelivery can retry the complete operation safely.
+
 ---
 
 ## Project Structure
@@ -221,7 +226,10 @@ Example:
 ```
 
 These events are stored in the `GAME_EVENTS` stream and processed by the
-`game-events-processor` durable consumer.
+`game-events-processor` durable consumer. `game.started` creates or updates a
+row in `game_sessions`; `game.ended` records its completion time. The room ID is
+stored as historical data without a foreign key because temporary rooms may be
+deleted after Champion Select.
 
 ### Dead-letter events
 
@@ -384,6 +392,8 @@ to avoid high-cardinality Prometheus metrics.
 - Durable `game.started` and `game.ended` events
 - JetStream publisher deduplication by event ID
 - Durable consumer with explicit ACK, delayed NAK and redelivery
+- Transactional inbox with atomic `game_sessions` persistence
+- Persistent game start and end timestamps
 - Dead-letter stream with deterministic transfer deduplication
 - Prometheus metrics for ACK, retry and dead-letter outcomes
 - Unit and integration coverage for lifecycle, deduplication, redelivery and DLQ
@@ -396,6 +406,8 @@ to avoid high-cardinality Prometheus metrics.
 - [x] NATS JetStream
 - [x] Durable game lifecycle publisher and consumer
 - [x] Idempotent game event processing
+- [x] Transactional inbox processing
+- [x] Game session persistence
 - [x] Processed event retention and cleanup
 - [x] Dead-letter strategy
 - [ ] Transactional outbox
