@@ -88,6 +88,30 @@ var (
 			"outcome",
 		},
 	)
+
+	OutboxRelayEvents = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "lol_timer_outbox_relay_events_total",
+			Help: "Total number of outbox relay event outcomes.",
+		},
+		[]string{
+			"outcome",
+		},
+	)
+
+	OutboxRelayDuration = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name: "lol_timer_outbox_relay_duration_seconds",
+			Help: "Duration of outbox relay cycles in seconds.",
+		},
+	)
+
+	OutboxCleanupDeleted = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "lol_timer_outbox_cleanup_deleted_total",
+			Help: "Total number of published outbox events deleted.",
+		},
+	)
 )
 
 func Register() {
@@ -101,6 +125,9 @@ func Register() {
 			ActiveRooms,
 			WebSocketConnections,
 			GameEventDeliveryOutcomes,
+			OutboxRelayEvents,
+			OutboxRelayDuration,
+			OutboxCleanupDeleted,
 		)
 	})
 }

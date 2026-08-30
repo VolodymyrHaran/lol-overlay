@@ -34,6 +34,9 @@ type App struct {
 
 	GameEventsConsumer    *messaging.ConsumerHandle
 	ProcessedEventCleanup *services.ProcessedEventCleanupService
+	OutboxRelay           *services.OutboxRelayService
+	GameLifecycleService  *services.GameLifecycleService
+	OutboxCleanup         *services.OutboxCleanupService
 
 	Hub *websocket.Hub
 

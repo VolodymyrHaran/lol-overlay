@@ -108,6 +108,40 @@ Processed event markers are retained for 30 days. A background cleanup runs
 once per day and removes older markers. The retention period is longer than
 the seven-day maximum age of the `GAME_EVENTS` stream.
 
+### Transactional outbox
+
+Game lifecycle transitions are persisted to the PostgreSQL `outbox_events`
+table before they are published to JetStream. The outbox row contains the event
+ID, subject, JSON payload, creation time, next available time, publication time,
+attempt count and last publication error.
+
+The event ID is shared by the outbox row, event payload and JetStream message
+ID. If enqueueing temporarily fails, `GameLifecycleService` retains the same
+event in memory and retries the identical ID and payload on the next
+observation.
+
+A background relay claims pending rows in batches using
+`FOR UPDATE SKIP LOCKED`. Claiming moves `available_at` to a 30-second lease
+deadline. Multiple application instances can therefore run relays without
+claiming the same row concurrently. If an instance stops after claiming a row,
+the event becomes available again when the lease expires.
+
+Publication failures are recorded in the outbox and retried with exponential
+backoff starting at five seconds and capped at five minutes. Successful
+publication sets `published_at` and clears the last error. If JetStream accepts
+an event but the database update fails, the lease eventually expires and the
+relay publishes the same message ID again. JetStream deduplication and the
+idempotent consumer make this failure mode safe.
+
+Published outbox rows are retained for 30 days and removed by a daily cleanup.
+Pending and failed rows are never removed by retention cleanup.
+
+Relay behavior is exposed through:
+
+- `lol_timer_outbox_relay_events_total`;
+- `lol_timer_outbox_relay_duration_seconds`;
+- `lol_timer_outbox_cleanup_deleted_total`.
+
 ### Dead-letter handling
 
 Processing failures are retried with delayed negative acknowledgements. After
@@ -143,6 +177,9 @@ Advantages:
 - durable game lifecycle events;
 - explicit acknowledgement and retry behavior;
 - publisher-side deduplication;
+- durable producer-side handoff through PostgreSQL outbox;
+- safe multi-instance claiming with leases and `SKIP LOCKED`;
+- bounded exponential publication retry;
 - consumer-side idempotency;
 - atomic inbox claiming and game-session persistence;
 - durable dead-letter storage for poison messages;
@@ -155,7 +192,8 @@ Trade-offs:
 - Core NATS room notifications may be lost;
 - JetStream provides at-least-once rather than exactly-once delivery;
 - consumers must remain idempotent;
-- producer database changes and event publication are not atomic;
+- the relay may publish an event more than once if finalizing its outbox row
+  fails;
 - dead-letter messages currently require manual inspection and replay.
 
 ## Verification
@@ -170,10 +208,15 @@ The implementation is covered by:
 - consumer duplicate and repository-error tests;
 - PostgreSQL transactional game-event repository integration tests;
 - rollback verification for failed game-session changes;
-- processed-event retention tests.
+- processed-event retention tests;
+- PostgreSQL outbox enqueue, lease, retry, publication and cleanup integration
+  tests;
+- outbox relay and exponential backoff unit tests;
+- manual end-to-end verification from outbox enqueue through game-session
+  persistence.
 
 ## Future work
 
-- transactional outbox for atomic database changes and event publication;
 - alerts and dashboards for retry and dead-letter metrics;
+- automated end-to-end outbox pipeline integration tests;
 - controlled replay tooling for dead-letter events.

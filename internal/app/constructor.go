@@ -16,9 +16,10 @@ import (
 	"lol-timer/internal/messaging"
 	"lol-timer/internal/metrics"
 	"lol-timer/internal/repositories"
+	gameeventrepo "lol-timer/internal/repositories/postgres/gameevent"
+	outboxrepo "lol-timer/internal/repositories/postgres/outbox"
 	processedeventrepo "lol-timer/internal/repositories/postgres/processedevent"
 	roomrepo "lol-timer/internal/repositories/postgres/room"
-	gameeventrepo "lol-timer/internal/repositories/postgres/gameevent"
 	"lol-timer/internal/services"
 	"lol-timer/internal/websocket"
 )
@@ -106,6 +107,24 @@ func New() (*App, error) {
 	)
 
 	gameEventRepository := gameeventrepo.NewRepository(db)
+
+	outboxRepository :=
+		outboxrepo.NewRepository(db)
+
+	gameLifecycleService :=
+		services.NewGameLifecycleService(
+			outboxRepository,
+		)
+
+	outboxRelay := services.NewOutboxRelayService(
+		outboxRepository,
+		natsClient,
+	)
+
+	outboxCleanup :=
+		services.NewOutboxCleanupService(
+			outboxRepository,
+		)
 
 	roomCache := cache.NewRedisRoomCache(
 		redisClient,
@@ -221,6 +240,9 @@ func New() (*App, error) {
 
 		GameEventsConsumer:    gameConsumerHandle,
 		ProcessedEventCleanup: processedEventCleanup,
+		OutboxRelay:           outboxRelay,
+		GameLifecycleService:  gameLifecycleService,
+		OutboxCleanup:         outboxCleanup,
 
 		server: server,
 	}, nil

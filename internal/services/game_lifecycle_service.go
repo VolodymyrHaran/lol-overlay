@@ -2,43 +2,26 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"lol-timer/internal/messaging"
+	"lol-timer/internal/repositories"
 )
 
-type DurableGameEventPublisher interface {
-	PublishGameStarted(
-		ctx context.Context,
-		event messaging.GameStartedEvent,
-	) (*messaging.PublishAck, error)
-
-	PublishGameEnded(
-		ctx context.Context,
-		event messaging.GameEndedEvent,
-	) (*messaging.PublishAck, error)
-}
-
-type pendingGameEvent struct {
-	eventType GameLifecycleTransitionType
-
-	started *messaging.GameStartedEvent
-	ended   *messaging.GameEndedEvent
-}
-
 type GameLifecycleService struct {
-	tracker   *GameLifecycleTracker
-	publisher DurableGameEventPublisher
+	tracker *GameLifecycleTracker
+	outbox  repositories.OutboxWriter
 
-	pending *pendingGameEvent
+	pending *repositories.OutboxEvent
 }
 
 func NewGameLifecycleService(
-	publisher DurableGameEventPublisher,
+	outbox repositories.OutboxWriter,
 ) *GameLifecycleService {
 	return &GameLifecycleService{
-		tracker:   NewGameLifecycleTracker(),
-		publisher: publisher,
+		tracker: NewGameLifecycleTracker(),
+		outbox:  outbox,
 	}
 }
 
@@ -49,7 +32,7 @@ func (s *GameLifecycleService) Observe(
 	roomID string,
 ) error {
 	if s.pending != nil {
-		if err := s.publishPending(ctx); err != nil {
+		if err := s.enqueuePending(ctx); err != nil {
 			return err
 		}
 
@@ -73,39 +56,17 @@ func (s *GameLifecycleService) Observe(
 		)
 	}
 
-	switch transition.Type {
-	case GameLifecycleStarted:
-		event := messaging.GameStartedEvent{
-			EventMetadata: metadata,
-			GameID:        transition.GameID,
-			RoomID:        transition.RoomID,
-		}
-
-		s.pending = &pendingGameEvent{
-			eventType: GameLifecycleStarted,
-			started:   &event,
-		}
-
-	case GameLifecycleEnded:
-		event := messaging.GameEndedEvent{
-			EventMetadata: metadata,
-			GameID:        transition.GameID,
-			RoomID:        transition.RoomID,
-		}
-
-		s.pending = &pendingGameEvent{
-			eventType: GameLifecycleEnded,
-			ended:     &event,
-		}
-
-	default:
-		return fmt.Errorf(
-			"unsupported lifecycle transition %q",
-			transition.Type,
-		)
+	outboxEvent, err := newGameOutboxEvent(
+		transition,
+		metadata,
+	)
+	if err != nil {
+		return err
 	}
 
-	if err := s.publishPending(ctx); err != nil {
+	s.pending = &outboxEvent
+
+	if err := s.enqueuePending(ctx); err != nil {
 		return err
 	}
 
@@ -114,40 +75,78 @@ func (s *GameLifecycleService) Observe(
 	return nil
 }
 
-func (s *GameLifecycleService) publishPending(
+func (s *GameLifecycleService) enqueuePending(
 	ctx context.Context,
 ) error {
-	switch s.pending.eventType {
-	case GameLifecycleStarted:
-		_, err := s.publisher.PublishGameStarted(
-			ctx,
-			*s.pending.started,
-		)
-		if err != nil {
-			return fmt.Errorf(
-				"publish game started: %w",
-				err,
-			)
-		}
-
-	case GameLifecycleEnded:
-		_, err := s.publisher.PublishGameEnded(
-			ctx,
-			*s.pending.ended,
-		)
-		if err != nil {
-			return fmt.Errorf(
-				"publish game ended: %w",
-				err,
-			)
-		}
-
-	default:
+	_, err := s.outbox.Enqueue(
+		ctx,
+		*s.pending,
+	)
+	if err != nil {
 		return fmt.Errorf(
-			"unsupported pending game event %q",
-			s.pending.eventType,
+			"enqueue game event %q: %w",
+			s.pending.ID,
+			err,
 		)
 	}
 
 	return nil
+}
+
+func newGameOutboxEvent(
+	transition *GameLifecycleTransition,
+	metadata messaging.EventMetadata,
+) (repositories.OutboxEvent, error) {
+	switch transition.Type {
+	case GameLifecycleStarted:
+		event := messaging.GameStartedEvent{
+			EventMetadata: metadata,
+			GameID:        transition.GameID,
+			RoomID:        transition.RoomID,
+		}
+
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return repositories.OutboxEvent{},
+				fmt.Errorf(
+					"marshal game started event: %w",
+					err,
+				)
+		}
+
+		return repositories.OutboxEvent{
+			ID:      metadata.EventID,
+			Subject: messaging.SubjectGameStarted,
+			Payload: payload,
+		}, nil
+
+	case GameLifecycleEnded:
+		event := messaging.GameEndedEvent{
+			EventMetadata: metadata,
+			GameID:        transition.GameID,
+			RoomID:        transition.RoomID,
+		}
+
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return repositories.OutboxEvent{},
+				fmt.Errorf(
+					"marshal game ended event: %w",
+					err,
+				)
+		}
+
+		return repositories.OutboxEvent{
+			ID:      metadata.EventID,
+			Subject: messaging.SubjectGameEnded,
+			Payload: payload,
+		}, nil
+
+	default:
+		return repositories.OutboxEvent{},
+			fmt.Errorf(
+				"unsupported lifecycle transition %q",
+				transition.Type,
+			)
+	}
 }

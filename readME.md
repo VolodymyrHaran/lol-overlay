@@ -25,6 +25,7 @@ The application automatically detects the current Champion Select session, synch
 - ⏱ Event-driven cooldown synchronization without database polling
 - 📦 Durable game lifecycle events via NATS JetStream
 - 🚨 Dead-letter handling for failed game events
+- 📤 PostgreSQL transactional outbox with retry and leases
 
 ---
 
@@ -107,6 +108,12 @@ Game lifecycle consumption uses a transactional inbox. The `processed_events`
 marker and the corresponding `game_sessions` insert or update are committed in
 one PostgreSQL transaction. A failed business change rolls back the marker, so
 JetStream redelivery can retry the complete operation safely.
+
+Game lifecycle production uses the PostgreSQL `outbox_events` table. Lifecycle
+events are persisted before publication, then a background relay claims pending
+rows with `FOR UPDATE SKIP LOCKED` and a 30-second lease. Failed publications
+use exponential backoff from five seconds up to five minutes. Published rows
+are retained for 30 days; pending and failed rows are never removed by cleanup.
 
 ---
 
@@ -230,6 +237,11 @@ These events are stored in the `GAME_EVENTS` stream and processed by the
 row in `game_sessions`; `game.ended` records its completion time. The room ID is
 stored as historical data without a foreign key because temporary rooms may be
 deleted after Champion Select.
+
+Before reaching JetStream, both event types are stored in `outbox_events` with
+the same event ID and JSON payload. The relay marks a row with `published_at`
+only after JetStream acknowledges publication. Repeated publication uses the
+same message ID and remains safe for the idempotent consumer.
 
 ### Dead-letter events
 
@@ -369,6 +381,17 @@ The `outcome` label reports `acked`, `ack_error`, `retried`, `retry_error` or
 `dead_lettered`. Event IDs and game IDs are intentionally excluded from labels
 to avoid high-cardinality Prometheus metrics.
 
+Outbox metrics
+
+```text
+lol_timer_outbox_relay_events_total
+lol_timer_outbox_relay_duration_seconds
+lol_timer_outbox_cleanup_deleted_total
+```
+
+Relay outcomes include successful publication, scheduled retry, retry-state
+errors and publication-finalization errors.
+
 ---
 
 ## Current Features
@@ -394,8 +417,10 @@ to avoid high-cardinality Prometheus metrics.
 - Durable consumer with explicit ACK, delayed NAK and redelivery
 - Transactional inbox with atomic `game_sessions` persistence
 - Persistent game start and end timestamps
+- PostgreSQL outbox with leased multi-instance batch claiming
+- Exponential outbox publication retry and published-event retention
 - Dead-letter stream with deterministic transfer deduplication
-- Prometheus metrics for ACK, retry and dead-letter outcomes
+- Prometheus metrics for ACK, retry, outbox and dead-letter outcomes
 - Unit and integration coverage for lifecycle, deduplication, redelivery and DLQ
 
 ---
@@ -410,7 +435,7 @@ to avoid high-cardinality Prometheus metrics.
 - [x] Game session persistence
 - [x] Processed event retention and cleanup
 - [x] Dead-letter strategy
-- [ ] Transactional outbox
+- [x] Transactional outbox
 - [ ] Electron desktop application
 - [ ] Riot Data Dragon integration
 - [ ] Champion icons cache

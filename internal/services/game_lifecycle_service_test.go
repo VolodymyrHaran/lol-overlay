@@ -2,75 +2,52 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
 	"lol-timer/internal/messaging"
+	"lol-timer/internal/repositories"
 )
 
-type fakeDurableGamePublisher struct {
+type fakeOutboxWriter struct {
 	failuresRemaining int
-
-	startedAttempts []messaging.GameStartedEvent
-	endedAttempts   []messaging.GameEndedEvent
+	attempts          []repositories.OutboxEvent
 }
 
-func (p *fakeDurableGamePublisher) PublishGameStarted(
+func (w *fakeOutboxWriter) Enqueue(
 	ctx context.Context,
-	event messaging.GameStartedEvent,
-) (*messaging.PublishAck, error) {
-	p.startedAttempts = append(
-		p.startedAttempts,
+	event repositories.OutboxEvent,
+) (bool, error) {
+	event.Payload = append(
+		[]byte(nil),
+		event.Payload...,
+	)
+
+	w.attempts = append(
+		w.attempts,
 		event,
 	)
 
-	if p.failuresRemaining > 0 {
-		p.failuresRemaining--
+	if w.failuresRemaining > 0 {
+		w.failuresRemaining--
 
-		return nil, errors.New(
-			"temporary publish failure",
+		return false, errors.New(
+			"temporary outbox failure",
 		)
 	}
 
-	return &messaging.PublishAck{
-		Stream:   messaging.StreamGameEvents,
-		Sequence: 1,
-	}, nil
+	return true, nil
 }
 
-func (p *fakeDurableGamePublisher) PublishGameEnded(
-	ctx context.Context,
-	event messaging.GameEndedEvent,
-) (*messaging.PublishAck, error) {
-	p.endedAttempts = append(
-		p.endedAttempts,
-		event,
-	)
-
-	if p.failuresRemaining > 0 {
-		p.failuresRemaining--
-
-		return nil, errors.New(
-			"temporary publish failure",
-		)
-	}
-
-	return &messaging.PublishAck{
-		Stream:   messaging.StreamGameEvents,
-		Sequence: 2,
-	}, nil
-}
-
-func TestGameLifecycleServiceRetriesSameEventID(
+func TestGameLifecycleServiceRetriesSameOutboxEvent(
 	t *testing.T,
 ) {
-	publisher := &fakeDurableGamePublisher{
+	writer := &fakeOutboxWriter{
 		failuresRemaining: 1,
 	}
 
-	service := NewGameLifecycleService(
-		publisher,
-	)
+	service := NewGameLifecycleService(writer)
 
 	ctx := context.Background()
 
@@ -80,7 +57,10 @@ func TestGameLifecycleServiceRetriesSameEventID(
 		123,
 		"room-1",
 	); err != nil {
-		t.Fatalf("observe champion select: %v", err)
+		t.Fatalf(
+			"observe champion select: %v",
+			err,
+		)
 	}
 
 	err := service.Observe(
@@ -91,21 +71,20 @@ func TestGameLifecycleServiceRetriesSameEventID(
 	)
 	if err == nil {
 		t.Fatal(
-			"expected first publication to fail",
+			"expected first enqueue to fail",
 		)
 	}
 
-	if len(publisher.startedAttempts) != 1 {
+	if len(writer.attempts) != 1 {
 		t.Fatalf(
-			"expected 1 publish attempt, got %d",
-			len(publisher.startedAttempts),
+			"expected 1 enqueue attempt, got %d",
+			len(writer.attempts),
 		)
 	}
 
-	firstEventID :=
-		publisher.startedAttempts[0].EventID
+	first := writer.attempts[0]
 
-	if firstEventID == "" {
+	if first.ID == "" {
 		t.Fatal("expected non-empty event ID")
 	}
 
@@ -121,21 +100,35 @@ func TestGameLifecycleServiceRetriesSameEventID(
 		)
 	}
 
-	if len(publisher.startedAttempts) != 2 {
+	if len(writer.attempts) != 2 {
 		t.Fatalf(
-			"expected 2 publish attempts, got %d",
-			len(publisher.startedAttempts),
+			"expected 2 enqueue attempts, got %d",
+			len(writer.attempts),
 		)
 	}
 
-	secondEventID :=
-		publisher.startedAttempts[1].EventID
+	second := writer.attempts[1]
 
-	if secondEventID != firstEventID {
+	if second.ID != first.ID {
 		t.Errorf(
 			"expected retry event ID %q, got %q",
-			firstEventID,
-			secondEventID,
+			first.ID,
+			second.ID,
+		)
+	}
+
+	if second.Subject != first.Subject {
+		t.Errorf(
+			"expected retry subject %q, got %q",
+			first.Subject,
+			second.Subject,
+		)
+	}
+
+	if string(second.Payload) !=
+		string(first.Payload) {
+		t.Error(
+			"expected retry payload to remain unchanged",
 		)
 	}
 
@@ -151,22 +144,20 @@ func TestGameLifecycleServiceRetriesSameEventID(
 		)
 	}
 
-	if len(publisher.startedAttempts) != 2 {
+	if len(writer.attempts) != 2 {
 		t.Fatalf(
-			"expected no third publication, got %d attempts",
-			len(publisher.startedAttempts),
+			"expected no third enqueue, got %d attempts",
+			len(writer.attempts),
 		)
 	}
 }
 
-func TestGameLifecycleServicePublishesStartAndEndOnce(
+func TestGameLifecycleServiceEnqueuesStartAndEndOnce(
 	t *testing.T,
 ) {
-	publisher := &fakeDurableGamePublisher{}
+	writer := &fakeOutboxWriter{}
 
-	service := NewGameLifecycleService(
-		publisher,
-	)
+	service := NewGameLifecycleService(writer)
 
 	ctx := context.Background()
 
@@ -209,22 +200,73 @@ func TestGameLifecycleServicePublishesStartAndEndOnce(
 		}
 	}
 
-	if len(publisher.startedAttempts) != 1 {
+	if len(writer.attempts) != 2 {
 		t.Fatalf(
-			"expected 1 game started event, got %d",
-			len(publisher.startedAttempts),
+			"expected 2 outbox events, got %d",
+			len(writer.attempts),
 		)
 	}
 
-	if len(publisher.endedAttempts) != 1 {
-		t.Fatalf(
-			"expected 1 game ended event, got %d",
-			len(publisher.endedAttempts),
+	startedOutbox := writer.attempts[0]
+	endedOutbox := writer.attempts[1]
+
+	if startedOutbox.Subject !=
+		messaging.SubjectGameStarted {
+		t.Errorf(
+			"expected start subject %q, got %q",
+			messaging.SubjectGameStarted,
+			startedOutbox.Subject,
 		)
 	}
 
-	started := publisher.startedAttempts[0]
-	ended := publisher.endedAttempts[0]
+	if endedOutbox.Subject !=
+		messaging.SubjectGameEnded {
+		t.Errorf(
+			"expected end subject %q, got %q",
+			messaging.SubjectGameEnded,
+			endedOutbox.Subject,
+		)
+	}
+
+	var started messaging.GameStartedEvent
+
+	if err := json.Unmarshal(
+		startedOutbox.Payload,
+		&started,
+	); err != nil {
+		t.Fatalf(
+			"decode started payload: %v",
+			err,
+		)
+	}
+
+	var ended messaging.GameEndedEvent
+
+	if err := json.Unmarshal(
+		endedOutbox.Payload,
+		&ended,
+	); err != nil {
+		t.Fatalf(
+			"decode ended payload: %v",
+			err,
+		)
+	}
+
+	if started.EventID != startedOutbox.ID {
+		t.Errorf(
+			"expected start payload event ID %q, got %q",
+			startedOutbox.ID,
+			started.EventID,
+		)
+	}
+
+	if ended.EventID != endedOutbox.ID {
+		t.Errorf(
+			"expected end payload event ID %q, got %q",
+			endedOutbox.ID,
+			ended.EventID,
+		)
+	}
 
 	if started.GameID != 123 ||
 		ended.GameID != 123 {
@@ -251,8 +293,10 @@ func TestGameLifecycleServicePublishesStartAndEndOnce(
 		)
 	}
 
-	if started.Version != messaging.GameEventVersion ||
-		ended.Version != messaging.GameEventVersion {
+	if started.Version !=
+		messaging.GameEventVersion ||
+		ended.Version !=
+			messaging.GameEventVersion {
 		t.Errorf(
 			"expected event version %d",
 			messaging.GameEventVersion,

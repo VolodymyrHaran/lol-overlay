@@ -20,11 +20,11 @@ func (a *App) Run(ctx context.Context) error {
 	a.RoomService.StartCooldownUpdater(ctx)
 	a.RoomService.StartRoomCleanup(ctx)
 	a.ProcessedEventCleanup.Start(ctx)
-
-	gameLifecycleService := services.NewGameLifecycleService(a.NATS)
+	a.OutboxRelay.Start(ctx)
+	a.OutboxCleanup.Start(ctx)
 
 	lolClient := services.NewLolClientService()
-	lolClient.StartChampSelectSync(ctx, a.RoomService, gameLifecycleService)
+	lolClient.StartChampSelectSync(ctx, a.RoomService, a.GameLifecycleService)
 
 	mux := http.NewServeMux()
 
