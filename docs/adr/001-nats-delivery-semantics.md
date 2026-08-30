@@ -72,7 +72,7 @@ The `game-events-processor` durable consumer uses:
 - explicit acknowledgements;
 - confirmed acknowledgements with `DoubleAck`;
 - delayed negative acknowledgements after processing errors;
-- limited redelivery;
+- application-controlled retry attempts;
 - at-least-once delivery semantics.
 
 ### Idempotent consumption
@@ -97,6 +97,33 @@ Processed event markers are retained for 30 days. A background cleanup runs
 once per day and removes older markers. The retention period is longer than
 the seven-day maximum age of the `GAME_EVENTS` stream.
 
+### Dead-letter handling
+
+Processing failures are retried with delayed negative acknowledgements. After
+the fifth failed delivery, the original subject, payload, processing error and
+JetStream metadata are published to the `GAME_EVENTS_DLQ` stream on the
+`dead.game` subject.
+
+After the dead-letter publication succeeds, the source message is terminated
+with `TermWithReason`. The DLQ message ID is derived from the source stream,
+stream sequence and consumer, so repeating the transfer does not create
+duplicate dead-letter records.
+
+The JetStream consumer itself has unlimited delivery attempts. This is
+intentional: if the DLQ stream is temporarily unavailable, the source message
+continues to be retried instead of being silently stranded after the fifth
+attempt. Dead-letter records are retained for 30 days.
+
+Delivery outcomes are exposed through the Prometheus counter
+`lol_timer_game_event_delivery_outcomes_total`, labelled by subject and one of
+the following outcomes:
+
+- `acked`;
+- `ack_error`;
+- `retried`;
+- `retry_error`;
+- `dead_lettered`.
+
 ## Consequences
 
 Advantages:
@@ -106,6 +133,8 @@ Advantages:
 - explicit acknowledgement and retry behavior;
 - publisher-side deduplication;
 - consumer-side idempotency;
+- durable dead-letter storage for poison messages;
+- observable delivery outcomes;
 - bounded inbox-table growth;
 - independent delivery semantics for different event categories.
 
@@ -116,7 +145,7 @@ Trade-offs:
 - consumers must remain idempotent;
 - producer database changes and event publication are not atomic;
 - inbox markers and future business changes must share a transaction;
-- poison messages still require a dead-letter strategy.
+- dead-letter messages currently require manual inspection and replay.
 
 ## Verification
 
@@ -126,6 +155,7 @@ The implementation is covered by:
 - unit tests for publisher retry with the same event ID;
 - JetStream publication deduplication integration tests;
 - JetStream unacknowledged-message redelivery integration tests;
+- JetStream dead-letter routing integration tests;
 - consumer duplicate and repository-error tests;
 - PostgreSQL inbox repository integration tests;
 - processed-event retention tests.
@@ -133,6 +163,6 @@ The implementation is covered by:
 ## Future work
 
 - transactional inbox processing with business changes;
-- dead-letter handling after maximum delivery attempts;
 - transactional outbox for atomic database changes and event publication;
-- metrics and alerts for redelivery and dead-letter events.
+- alerts and dashboards for retry and dead-letter metrics;
+- controlled replay tooling for dead-letter events.

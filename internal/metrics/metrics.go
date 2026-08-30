@@ -77,6 +77,17 @@ var (
 			Help: "Current number of active WebSocket connections.",
 		},
 	)
+
+	GameEventDeliveryOutcomes = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "lol_timer_game_event_delivery_outcomes_total",
+			Help: "Total game event delivery outcomes.",
+		},
+		[]string{
+			"subject",
+			"outcome",
+		},
+	)
 )
 
 func Register() {
@@ -89,6 +100,7 @@ func Register() {
 			RepositoryOperations,
 			ActiveRooms,
 			WebSocketConnections,
+			GameEventDeliveryOutcomes,
 		)
 	})
 }

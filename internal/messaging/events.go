@@ -4,8 +4,9 @@ const (
 	SubjectCurrentRoomChanged = "room.current.changed"
 	SubjectRoomUpdated        = "room.updated"
 
-	SubjectGameStarted = "game.started"
-	SubjectGameEnded   = "game.ended"
+	SubjectGameStarted    = "game.started"
+	SubjectGameEnded      = "game.ended"
+	SubjectGameDeadLetter = "dead.game"
 )
 
 type CurrentRoomChangedEvent struct {

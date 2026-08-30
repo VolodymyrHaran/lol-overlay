@@ -24,6 +24,7 @@ The application automatically detects the current Champion Select session, synch
 - 📨 Event-driven room updates via NATS
 - ⏱ Event-driven cooldown synchronization without database polling
 - 📦 Durable game lifecycle events via NATS JetStream
+- 🚨 Dead-letter handling for failed game events
 
 ---
 
@@ -96,9 +97,11 @@ NATS JetStream is used for durable game lifecycle events. The `GAME_EVENTS`
 stream stores `game.started` and `game.ended`. Events include a unique event ID,
 occurrence time and schema version. Publishers use the event ID as a JetStream
 message ID, allowing duplicate publications to be deduplicated. The durable
-consumer uses explicit acknowledgements, delayed negative acknowledgements and
-limited redelivery, providing at-least-once delivery. Consumers must therefore
-process these events idempotently.
+consumer uses explicit acknowledgements and delayed negative acknowledgements,
+providing at-least-once delivery. Consumers must therefore process these events
+idempotently. After five failed deliveries, events are moved to the
+`GAME_EVENTS_DLQ` stream. If the DLQ is unavailable, delivery continues so the
+source event is not silently lost.
 
 ---
 
@@ -220,6 +223,21 @@ Example:
 These events are stored in the `GAME_EVENTS` stream and processed by the
 `game-events-processor` durable consumer.
 
+### Dead-letter events
+
+Subject and stream:
+
+```text
+subject: dead.game
+stream:  GAME_EVENTS_DLQ
+```
+
+After five failed processing attempts, the original subject and payload,
+processing error, delivery count and source JetStream metadata are stored in
+the DLQ for inspection or controlled replay. A successful transfer terminates
+the source message with `TermWithReason`. Transfers are deduplicated by source
+stream, sequence and consumer.
+
 --- 
 
 ## WebSocket API
@@ -333,6 +351,16 @@ NATS monitoring
 http://localhost:8222
 ```
 
+Game-event delivery metric
+
+```text
+lol_timer_game_event_delivery_outcomes_total
+```
+
+The `outcome` label reports `acked`, `ack_error`, `retried`, `retry_error` or
+`dead_lettered`. Event IDs and game IDs are intentionally excluded from labels
+to avoid high-cardinality Prometheus metrics.
+
 ---
 
 ## Current Features
@@ -356,7 +384,9 @@ http://localhost:8222
 - Durable `game.started` and `game.ended` events
 - JetStream publisher deduplication by event ID
 - Durable consumer with explicit ACK, delayed NAK and redelivery
-- Unit and integration coverage for lifecycle, deduplication and redelivery
+- Dead-letter stream with deterministic transfer deduplication
+- Prometheus metrics for ACK, retry and dead-letter outcomes
+- Unit and integration coverage for lifecycle, deduplication, redelivery and DLQ
 
 ---
 
@@ -367,7 +397,7 @@ http://localhost:8222
 - [x] Durable game lifecycle publisher and consumer
 - [x] Idempotent game event processing
 - [x] Processed event retention and cleanup
-- [ ] Dead-letter strategy
+- [x] Dead-letter strategy
 - [ ] Transactional outbox
 - [ ] Electron desktop application
 - [ ] Riot Data Dragon integration

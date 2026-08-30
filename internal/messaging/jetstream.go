@@ -11,6 +11,8 @@ import (
 const StreamGameEvents = "GAME_EVENTS"
 const duplicateWindow = 2 * time.Minute
 const gameEventsMaxAge = 7 * 24 * time.Hour
+const StreamGameEventsDLQ = "GAME_EVENTS_DLQ"
+const deadLetterMaxAge = 30 * 24 * time.Hour
 
 type PublishAck struct {
 	Stream    string
@@ -83,4 +85,36 @@ func (c *Client) PublishDurable(
 		Sequence:  ack.Sequence,
 		Duplicate: ack.Duplicate,
 	}, nil
+}
+
+func (c *Client) EnsureGameEventsDLQStream(
+	ctx context.Context,
+) error {
+	_, err := c.jetStream.CreateOrUpdateStream(
+		ctx,
+		jetstream.StreamConfig{
+			Name: StreamGameEventsDLQ,
+
+			Description: "Failed game lifecycle events",
+
+			Subjects: []string{
+				SubjectGameDeadLetter,
+			},
+
+			Retention: jetstream.LimitsPolicy,
+			Discard:   jetstream.DiscardOld,
+			Storage:   jetstream.FileStorage,
+			MaxAge:    deadLetterMaxAge,
+			Replicas:  1,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"ensure JetStream stream %q: %w",
+			StreamGameEventsDLQ,
+			err,
+		)
+	}
+
+	return nil
 }

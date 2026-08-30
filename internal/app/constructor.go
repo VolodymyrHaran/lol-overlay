@@ -77,6 +77,12 @@ func New() (*App, error) {
 		jetStreamContext,
 	)
 
+	if err == nil {
+		err = natsClient.EnsureGameEventsDLQStream(
+			jetStreamContext,
+		)
+	}
+
 	jetStreamCancel()
 
 	if err != nil {
