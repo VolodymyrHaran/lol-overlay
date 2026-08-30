@@ -1,0 +1,1 @@
+DROP INDEX idx_processed_events_processed_at;

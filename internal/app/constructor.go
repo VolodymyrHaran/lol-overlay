@@ -16,6 +16,7 @@ import (
 	"lol-timer/internal/messaging"
 	"lol-timer/internal/metrics"
 	"lol-timer/internal/repositories"
+	processedeventrepo "lol-timer/internal/repositories/postgres/processedevent"
 	roomrepo "lol-timer/internal/repositories/postgres/room"
 	"lol-timer/internal/services"
 	"lol-timer/internal/websocket"
@@ -91,6 +92,12 @@ func New() (*App, error) {
 
 	postgresRepository := roomrepo.NewRoomRepository(db)
 
+	processedEventRepository := processedeventrepo.NewRepository(db)
+
+	processedEventCleanup := services.NewProcessedEventCleanupService(
+		processedEventRepository,
+	)
+
 	roomCache := cache.NewRedisRoomCache(
 		redisClient,
 		cfg.RoomCacheTTL,
@@ -152,7 +159,7 @@ func New() (*App, error) {
 		)
 	}
 
-	gameConsumer := consumers.NewGameConsumer()
+	gameConsumer := consumers.NewGameConsumer(processedEventRepository)
 
 	gameConsumerContext, gameConsumerCancel :=
 		context.WithTimeout(
@@ -203,7 +210,8 @@ func New() (*App, error) {
 
 		Hub: hub,
 
-		GameEventsConsumer: gameConsumerHandle,
+		GameEventsConsumer:    gameConsumerHandle,
+		ProcessedEventCleanup: processedEventCleanup,
 
 		server: server,
 	}, nil

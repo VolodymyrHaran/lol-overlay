@@ -19,6 +19,7 @@ import (
 func (a *App) Run(ctx context.Context) error {
 	a.RoomService.StartCooldownUpdater(ctx)
 	a.RoomService.StartRoomCleanup(ctx)
+	a.ProcessedEventCleanup.Start(ctx)
 
 	gameLifecycleService := services.NewGameLifecycleService(a.NATS)
 

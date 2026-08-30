@@ -12,12 +12,14 @@ import (
 const ConsumerGameEvents = "game-events-processor"
 
 const (
-	gameEventAckWait    = 30 * time.Second
-	gameEventRetryDelay = 5 * time.Second
-	gameEventMaxDeliver = 5
+	gameEventAckWait           = 30 * time.Second
+	gameEventRetryDelay        = 5 * time.Second
+	gameEventMaxDeliver        = 5
+	gameEventProcessingTimeout = 10 * time.Second
 )
 
 type GameEventHandler func(
+	ctx context.Context,
 	subject string,
 	data []byte,
 ) error
@@ -66,7 +68,15 @@ func (c *Client) StartGameEventsConsumer(
 
 	consumeContext, err := consumer.Consume(
 		func(msg jetstream.Msg) {
+			processingCtx, processingCancel :=
+				context.WithTimeout(
+					context.Background(),
+					gameEventProcessingTimeout,
+				)
+			defer processingCancel()
+
 			if err := handler(
+				processingCtx,
 				msg.Subject(),
 				msg.Data(),
 			); err != nil {

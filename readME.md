@@ -365,7 +365,8 @@ http://localhost:8222
 - [x] NATS delivery semantics documented
 - [x] NATS JetStream
 - [x] Durable game lifecycle publisher and consumer
-- [ ] Idempotent game event processing
+- [x] Idempotent game event processing
+- [x] Processed event retention and cleanup
 - [ ] Dead-letter strategy
 - [ ] Transactional outbox
 - [ ] Electron desktop application

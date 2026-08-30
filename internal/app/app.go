@@ -32,7 +32,8 @@ type App struct {
 
 	NATS *messaging.Client
 
-	GameEventsConsumer *messaging.ConsumerHandle
+	GameEventsConsumer    *messaging.ConsumerHandle
+	ProcessedEventCleanup *services.ProcessedEventCleanupService
 
 	Hub *websocket.Hub
 

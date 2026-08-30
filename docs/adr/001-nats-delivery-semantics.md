@@ -2,67 +2,137 @@
 
 ## Status
 
-Accepted
+Accepted and implemented
 
 ## Context
 
-The application publishes room state notifications after mutations.
+The application publishes two categories of events with different delivery
+requirements.
 
-Current subjects:
+Transient room events:
 
 - `room.current.changed`
 - `room.updated`
 
-PostgreSQL is the source of truth. NATS events notify consumers that
-state should be reloaded. WebSocket clients also receive the latest
-snapshot when connecting.
-
-## Decision
-
-Use Core NATS for transient room events.
-
-Core NATS provides at-most-once delivery. A disconnected consumer can
-miss an event, and messages are not persisted or replayed.
-
-This is acceptable because:
-
-- room events are transient UI notifications;
-- the latest state remains available in PostgreSQL and Redis;
-- consumers load state by room ID;
-- WebSocket clients receive a snapshot when connecting;
-- later events supersede earlier room updates.
-
-Do not use queue groups for WebSocket consumers. Every application
-instance must receive events to update its locally connected clients.
-
-Use JetStream later for durable domain events such as:
+Durable game lifecycle events:
 
 - `game.started`
 - `game.ended`
 
-Durable consumers must support duplicate delivery and idempotent
-processing.
+PostgreSQL is the source of truth for room state. Room events only notify
+consumers that the latest state should be loaded and broadcast to WebSocket
+clients.
+
+Game lifecycle events may later trigger statistics, analytics and other
+business operations. Losing these events is not acceptable.
+
+## Decision
+
+### Transient room events
+
+Use Core NATS for room notifications.
+
+Core NATS provides at-most-once delivery. A disconnected consumer may miss an
+event, and messages are not persisted or replayed.
+
+This is acceptable because:
+
+- room events are transient UI notifications;
+- PostgreSQL and Redis retain the latest room state;
+- consumers load room state by room ID;
+- WebSocket clients receive a snapshot when connecting;
+- later room updates supersede earlier updates.
+
+Queue groups are not used for room WebSocket consumers. Every application
+instance must receive events for its locally connected clients.
+
+### Durable game events
+
+Use NATS JetStream for game lifecycle events.
+
+The `GAME_EVENTS` stream stores:
+
+- `game.started`
+- `game.ended`
+
+Each event contains:
+
+- a UUID event ID;
+- occurrence time;
+- schema version;
+- game ID;
+- room ID.
+
+The event ID is also used as the JetStream message ID. Repeated publication
+with the same message ID is deduplicated within the configured duplicate
+window.
+
+The `game-events-processor` durable consumer uses:
+
+- explicit acknowledgements;
+- confirmed acknowledgements with `DoubleAck`;
+- delayed negative acknowledgements after processing errors;
+- limited redelivery;
+- at-least-once delivery semantics.
+
+### Idempotent consumption
+
+JetStream may deliver the same event more than once. The consumer uses the
+PostgreSQL `processed_events` inbox table to detect duplicates.
+
+The primary key is:
+
+```text
+consumer_name + event_id
+```
+
+This allows different consumers to process the same event independently while
+preventing one consumer from processing it repeatedly.
+
+A duplicate is treated as successfully handled and acknowledged. A PostgreSQL
+error is returned to the JetStream callback, causing negative acknowledgement
+and redelivery.
+
+Processed event markers are retained for 30 days. A background cleanup runs
+once per day and removes older markers. The retention period is longer than
+the seven-day maximum age of the `GAME_EVENTS` stream.
 
 ## Consequences
 
 Advantages:
 
-- low latency;
-- simple operation;
-- no acknowledgement handling;
-- no durable stream growth for per-second cooldown events.
+- low-latency transient room updates;
+- durable game lifecycle events;
+- explicit acknowledgement and retry behavior;
+- publisher-side deduplication;
+- consumer-side idempotency;
+- bounded inbox-table growth;
+- independent delivery semantics for different event categories.
 
 Trade-offs:
 
-- transient events may be lost;
-- producer state changes and event publication are not atomic;
-- temporary UI staleness is possible;
-- critical events require a different delivery mechanism.
+- Core NATS room notifications may be lost;
+- JetStream provides at-least-once rather than exactly-once delivery;
+- consumers must remain idempotent;
+- producer database changes and event publication are not atomic;
+- inbox markers and future business changes must share a transaction;
+- poison messages still require a dead-letter strategy.
+
+## Verification
+
+The implementation is covered by:
+
+- unit tests for game lifecycle transitions;
+- unit tests for publisher retry with the same event ID;
+- JetStream publication deduplication integration tests;
+- JetStream unacknowledged-message redelivery integration tests;
+- consumer duplicate and repository-error tests;
+- PostgreSQL inbox repository integration tests;
+- processed-event retention tests.
 
 ## Future work
 
-- JetStream streams and durable consumers;
-- explicit acknowledgements;
-- retry and dead-letter strategy;
-- idempotency keys;
-- transactional outbox for critical database changes.
+- transactional inbox processing with business changes;
+- dead-letter handling after maximum delivery attempts;
+- transactional outbox for atomic database changes and event publication;
+- metrics and alerts for redelivery and dead-letter events.

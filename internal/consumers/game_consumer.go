@@ -1,29 +1,38 @@
 package consumers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 
 	"lol-timer/internal/messaging"
+	"lol-timer/internal/repositories"
 )
 
-type GameConsumer struct{}
+type GameConsumer struct {
+	processedEvents repositories.ProcessedEventRepository
+}
 
-func NewGameConsumer() *GameConsumer {
-	return &GameConsumer{}
+func NewGameConsumer(
+	processedEvents repositories.ProcessedEventRepository,
+) *GameConsumer {
+	return &GameConsumer{
+		processedEvents: processedEvents,
+	}
 }
 
 func (c *GameConsumer) Handle(
+	ctx context.Context,
 	subject string,
 	data []byte,
 ) error {
 	switch subject {
 	case messaging.SubjectGameStarted:
-		return c.handleGameStarted(data)
+		return c.handleGameStarted(ctx, data)
 
 	case messaging.SubjectGameEnded:
-		return c.handleGameEnded(data)
+		return c.handleGameEnded(ctx, data)
 
 	default:
 		return fmt.Errorf(
@@ -34,6 +43,7 @@ func (c *GameConsumer) Handle(
 }
 
 func (c *GameConsumer) handleGameStarted(
+	ctx context.Context,
 	data []byte,
 ) error {
 	var event messaging.GameStartedEvent
@@ -59,6 +69,19 @@ func (c *GameConsumer) handleGameStarted(
 		)
 	}
 
+	created, err := c.tryMarkProcessed(
+		ctx,
+		messaging.SubjectGameStarted,
+		event.EventMetadata,
+	)
+	if err != nil {
+		return err
+	}
+
+	if !created {
+		return nil
+	}
+
 	slog.Info(
 		"game started event consumed",
 		"event_id", event.EventID,
@@ -72,6 +95,7 @@ func (c *GameConsumer) handleGameStarted(
 }
 
 func (c *GameConsumer) handleGameEnded(
+	ctx context.Context,
 	data []byte,
 ) error {
 	var event messaging.GameEndedEvent
@@ -95,6 +119,19 @@ func (c *GameConsumer) handleGameEnded(
 			"validate game ended event: %w",
 			err,
 		)
+	}
+
+	created, err := c.tryMarkProcessed(
+		ctx,
+		messaging.SubjectGameEnded,
+		event.EventMetadata,
+	)
+	if err != nil {
+		return err
+	}
+
+	if !created {
+		return nil
 	}
 
 	slog.Info(
@@ -139,4 +176,34 @@ func validateConsumedGameEvent(
 	}
 
 	return nil
+}
+
+func (c *GameConsumer) tryMarkProcessed(
+	ctx context.Context,
+	subject string,
+	metadata messaging.EventMetadata,
+) (bool, error) {
+	created, err := c.processedEvents.TryMarkProcessed(
+		ctx,
+		messaging.ConsumerGameEvents,
+		metadata.EventID,
+		subject,
+	)
+	if err != nil {
+		return false, fmt.Errorf(
+			"mark game event %q as processed: %w",
+			metadata.EventID,
+			err,
+		)
+	}
+
+	if !created {
+		slog.Info(
+			"duplicate game event skipped",
+			"event_id", metadata.EventID,
+			"subject", subject,
+		)
+	}
+
+	return created, nil
 }
