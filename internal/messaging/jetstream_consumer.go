@@ -28,6 +28,12 @@ type GameEventHandler func(
 	data []byte,
 ) error
 
+type GameEventsConsumerOptions struct {
+	DurableName       string
+	DeliverNew        bool
+	InactiveThreshold time.Duration
+}
+
 type ConsumerHandle struct {
 	consumeContext jetstream.ConsumeContext
 }
@@ -36,10 +42,35 @@ func (c *Client) StartGameEventsConsumer(
 	ctx context.Context,
 	handler GameEventHandler,
 ) (*ConsumerHandle, error) {
+	return c.StartGameEventsConsumerWithOptions(
+		ctx,
+		GameEventsConsumerOptions{
+			DurableName: ConsumerGameEvents,
+		},
+		handler,
+	)
+}
+
+func (c *Client) StartGameEventsConsumerWithOptions(
+	ctx context.Context,
+	options GameEventsConsumerOptions,
+	handler GameEventHandler,
+) (*ConsumerHandle, error) {
 	if handler == nil {
 		return nil, fmt.Errorf(
 			"game event handler is required",
 		)
+	}
+
+	if options.DurableName == "" {
+		return nil, fmt.Errorf(
+			"game events consumer durable name is required",
+		)
+	}
+
+	deliverPolicy := jetstream.DeliverAllPolicy
+	if options.DeliverNew {
+		deliverPolicy = jetstream.DeliverNewPolicy
 	}
 
 	consumer, err :=
@@ -47,16 +78,18 @@ func (c *Client) StartGameEventsConsumer(
 			ctx,
 			StreamGameEvents,
 			jetstream.ConsumerConfig{
-				Durable: ConsumerGameEvents,
+				Durable: options.DurableName,
 
 				Description: "Processes durable game lifecycle events",
 
-				DeliverPolicy: jetstream.DeliverAllPolicy,
+				DeliverPolicy: deliverPolicy,
 
 				AckPolicy: jetstream.AckExplicitPolicy,
 
 				AckWait:    gameEventAckWait,
 				MaxDeliver: -1,
+
+				InactiveThreshold: options.InactiveThreshold,
 
 				FilterSubject: "game.>",
 				MaxAckPending: 64,
@@ -65,7 +98,7 @@ func (c *Client) StartGameEventsConsumer(
 	if err != nil {
 		return nil, fmt.Errorf(
 			"ensure JetStream consumer %q: %w",
-			ConsumerGameEvents,
+			options.DurableName,
 			err,
 		)
 	}

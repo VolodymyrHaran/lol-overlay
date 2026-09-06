@@ -212,11 +212,13 @@ The implementation is covered by:
 - PostgreSQL outbox enqueue, lease, retry, publication and cleanup integration
   tests;
 - outbox relay and exponential backoff unit tests;
-- manual end-to-end verification from outbox enqueue through game-session
-  persistence.
+- automated end-to-end verification from PostgreSQL outbox enqueue through
+  JetStream publication, transactional inbox processing and game-session
+  persistence;
+- GitHub Actions verification with PostgreSQL, Redis, NATS JetStream and a
+  freshly migrated database.
 
 ## Future work
 
 - alerts and dashboards for retry and dead-letter metrics;
-- automated end-to-end outbox pipeline integration tests;
 - controlled replay tooling for dead-letter events.

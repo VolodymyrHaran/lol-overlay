@@ -78,11 +78,20 @@ League Client (LCU)
           └── GameLifecycleService
                          │
                          ▼
+                 PostgreSQL Outbox
+                         │
+                         ▼
+                    Outbox Relay
+                         │
+                         ▼
                   NATS JetStream
                     GAME_EVENTS
                          │
                          ▼
                    GameConsumer
+                         │
+                         ▼
+          Transactional Inbox / game_sessions
 ```
 
 `RoomService` depends on an `EventPublisher` interface rather than directly
@@ -326,16 +335,48 @@ npm run dev
 
 ## Tests
 
+Run unit tests and static analysis:
+
 ```bash
 go test ./...
 go vet ./...
 ```
 
-JetStream integration tests require the NATS service to be running:
+Integration tests require PostgreSQL with applied migrations and NATS with
+JetStream enabled.
 
-```bash
-go test -tags=integration ./internal/messaging -v
+PowerShell:
+
+```powershell
+$env:TEST_DATABASE_URL = $env:DATABASE_URL
+$env:NATS_URL = "nats://localhost:4222"
+
+go test -tags=integration ./... -count=1 -p=1
 ```
+
+The integration suite covers JetStream deduplication and redelivery,
+dead-letter routing, PostgreSQL repositories, and the complete lifecycle event
+pipeline:
+
+```text
+outbox_events
+      │
+      ▼
+OutboxRelayService
+      │
+      ▼
+NATS JetStream
+      │
+      ▼
+GameConsumer
+      │
+      ├── processed_events
+      └── game_sessions
+```
+
+GitHub Actions automatically checks formatting, runs `go vet` and race-enabled
+unit tests, starts PostgreSQL, Redis and NATS JetStream, applies migrations,
+runs the integration suite, and builds the project.
 
 ---
 
@@ -422,6 +463,8 @@ errors and publication-finalization errors.
 - Dead-letter stream with deterministic transfer deduplication
 - Prometheus metrics for ACK, retry, outbox and dead-letter outcomes
 - Unit and integration coverage for lifecycle, deduplication, redelivery and DLQ
+- End-to-end outbox-to-inbox integration coverage
+- GitHub Actions CI with PostgreSQL, Redis and NATS JetStream
 
 ---
 
@@ -442,7 +485,8 @@ errors and publication-finalization errors.
 - [ ] Settings window
 - [ ] System tray
 - [ ] Auto start with Windows
-- [ ] GitHub Actions CI/CD
+- [x] GitHub Actions CI
+- [ ] Continuous deployment
 - [ ] Releases
 - [ ] Auto updater
 
