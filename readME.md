@@ -267,6 +267,24 @@ the DLQ for inspection or controlled replay. A successful transfer terminates
 the source message with `TermWithReason`. Transfers are deduplicated by source
 stream, sequence and consumer.
 
+The `dlq-replay` command provides a controlled recovery path. Preview the most
+recent message without changing it:
+
+```bash
+go run ./cmd/dlq-replay -latest
+```
+
+After inspecting the output, replay a specific sequence explicitly:
+
+```bash
+go run ./cmd/dlq-replay -sequence 17 -execute
+```
+
+Replay republishes the original subject and payload with a deterministic replay
+message ID. The DLQ record is deleted only after JetStream acknowledges the
+publication. `-latest -execute` is intentionally rejected so an operator must
+inspect and explicitly select the message before a destructive replay.
+
 --- 
 
 ## WebSocket API
@@ -433,6 +451,16 @@ lol_timer_outbox_cleanup_deleted_total
 Relay outcomes include successful publication, scheduled retry, retry-state
 errors and publication-finalization errors.
 
+Dead-letter replay metric
+
+```text
+lol_timer_dead_letter_replay_outcomes_total
+```
+
+The `outcome` label reports `replayed` after publication and DLQ deletion both
+succeed, or `replay_error` when any replay step fails. Event IDs and stream
+sequences are intentionally excluded from labels.
+
 ---
 
 ## Current Features
@@ -461,6 +489,8 @@ errors and publication-finalization errors.
 - PostgreSQL outbox with leased multi-instance batch claiming
 - Exponential outbox publication retry and published-event retention
 - Dead-letter stream with deterministic transfer deduplication
+- Controlled dead-letter preview and replay CLI
+- Deterministic replay publication with publish-before-delete ordering
 - Prometheus metrics for ACK, retry, outbox and dead-letter outcomes
 - Unit and integration coverage for lifecycle, deduplication, redelivery and DLQ
 - End-to-end outbox-to-inbox integration coverage
@@ -478,6 +508,7 @@ errors and publication-finalization errors.
 - [x] Game session persistence
 - [x] Processed event retention and cleanup
 - [x] Dead-letter strategy
+- [x] Controlled dead-letter replay tooling
 - [x] Transactional outbox
 - [ ] Electron desktop application
 - [ ] Riot Data Dragon integration

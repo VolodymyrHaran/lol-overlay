@@ -159,6 +159,13 @@ intentional: if the DLQ stream is temporarily unavailable, the source message
 continues to be retried instead of being silently stranded after the fifth
 attempt. Dead-letter records are retained for 30 days.
 
+Operators recover dead-lettered events with the `dlq-replay` command. The
+command previews the latest or a specific DLQ sequence without changing state
+unless `-execute` is supplied with an explicit sequence. Replay republishes the
+original subject and payload before deleting the DLQ record. Its deterministic
+message ID makes retrying the command safe when publication succeeds but DLQ
+deletion fails.
+
 Delivery outcomes are exposed through the Prometheus counter
 `lol_timer_game_event_delivery_outcomes_total`, labelled by subject and one of
 the following outcomes:
@@ -168,6 +175,10 @@ the following outcomes:
 - `retried`;
 - `retry_error`;
 - `dead_lettered`.
+
+Replay outcomes are exposed through
+`lol_timer_dead_letter_replay_outcomes_total` with the low-cardinality outcomes
+`replayed` and `replay_error`.
 
 ## Consequences
 
@@ -183,6 +194,7 @@ Advantages:
 - consumer-side idempotency;
 - atomic inbox claiming and game-session persistence;
 - durable dead-letter storage for poison messages;
+- controlled and idempotent dead-letter recovery;
 - observable delivery outcomes;
 - bounded inbox-table growth;
 - independent delivery semantics for different event categories.
@@ -194,7 +206,7 @@ Trade-offs:
 - consumers must remain idempotent;
 - the relay may publish an event more than once if finalizing its outbox row
   fails;
-- dead-letter messages currently require manual inspection and replay.
+- replay currently requires an operator to select a DLQ sequence explicitly.
 
 ## Verification
 
@@ -205,6 +217,8 @@ The implementation is covered by:
 - JetStream publication deduplication integration tests;
 - JetStream unacknowledged-message redelivery integration tests;
 - JetStream dead-letter routing integration tests;
+- dead-letter replay ordering, failure and deterministic-ID unit tests;
+- end-to-end dead-letter replay integration tests against JetStream;
 - consumer duplicate and repository-error tests;
 - PostgreSQL transactional game-event repository integration tests;
 - rollback verification for failed game-session changes;
@@ -221,4 +235,4 @@ The implementation is covered by:
 ## Future work
 
 - alerts and dashboards for retry and dead-letter metrics;
-- controlled replay tooling for dead-letter events.
+- dead-letter listing, filtering and audit history.

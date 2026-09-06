@@ -112,6 +112,16 @@ var (
 			Help: "Total number of published outbox events deleted.",
 		},
 	)
+
+	DeadLetterReplayOutcomes = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "lol_timer_dead_letter_replay_outcomes_total",
+			Help: "Total number of dead-letter replay outcomes.",
+		},
+		[]string{
+			"outcome",
+		},
+	)
 )
 
 func Register() {
@@ -128,6 +138,7 @@ func Register() {
 			OutboxRelayEvents,
 			OutboxRelayDuration,
 			OutboxCleanupDeleted,
+			DeadLetterReplayOutcomes,
 		)
 	})
 }
