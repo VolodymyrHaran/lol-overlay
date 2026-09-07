@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"lol-timer/internal/cache"
+	"lol-timer/internal/championgrpc"
 	"lol-timer/internal/config"
 	"lol-timer/internal/consumers"
 	"lol-timer/internal/database"
@@ -136,21 +137,17 @@ func New() (*App, error) {
 		roomCache,
 	)
 
-	championService := services.NewChampionService()
-
-	championContext, championCancel := context.WithTimeout(
-		context.Background(),
-		10*time.Second,
+	championClient, err := championgrpc.NewClient(
+		cfg.ChampionGRPCAddress,
+		championgrpc.DefaultRequestTimeout,
 	)
-	defer championCancel()
-
-	if err := championService.Load(championContext); err != nil {
+	if err != nil {
 		natsClient.Close()
 		redisClient.Close()
 		db.Close()
 
 		return nil, fmt.Errorf(
-			"load champion catalog: %w",
+			"create champion gRPC client: %w",
 			err,
 		)
 	}
@@ -159,7 +156,7 @@ func New() (*App, error) {
 
 	roomService := services.NewRoomService(
 		cachedRepository,
-		championService,
+		championClient,
 		natsClient,
 	)
 
@@ -177,6 +174,7 @@ func New() (*App, error) {
 	)
 
 	if err := roomConsumer.Start(); err != nil {
+		_ = championClient.Close()
 		natsClient.Close()
 		redisClient.Close()
 		db.Close()
@@ -204,6 +202,7 @@ func New() (*App, error) {
 	gameConsumerCancel()
 
 	if err != nil {
+		_ = championClient.Close()
 		natsClient.Close()
 		redisClient.Close()
 		db.Close()
@@ -228,6 +227,8 @@ func New() (*App, error) {
 		DB:    db,
 		Redis: redisClient,
 		NATS:  natsClient,
+
+		ChampionClient: championClient,
 
 		Logger:        log,
 		HealthHandler: healthHandler,

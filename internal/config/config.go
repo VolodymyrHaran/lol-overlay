@@ -18,6 +18,8 @@ type Config struct {
 	RoomCacheTTL  time.Duration
 
 	NATSURL string
+
+	ChampionGRPCAddress string
 }
 
 func Load() (*Config, error) {
@@ -46,11 +48,12 @@ func Load() (*Config, error) {
 		HTTPAddress: getEnv("HTTP_ADDRESS", ":8080"),
 		LogLevel:    getEnv("LOG_LEVEL", "info"),
 
-		RedisAddress:  getEnv("REDIS_ADDRESS", "localhost:6379"),
-		RedisPassword: os.Getenv("REDIS_PASSWORD"),
-		RedisDatabase: redisDatabase,
-		RoomCacheTTL:  roomCacheTTL,
-		NATSURL:       getEnv("NATS_URL", "nats://localhost:4222"),
+		RedisAddress:        getEnv("REDIS_ADDRESS", "localhost:6379"),
+		RedisPassword:       os.Getenv("REDIS_PASSWORD"),
+		RedisDatabase:       redisDatabase,
+		RoomCacheTTL:        roomCacheTTL,
+		NATSURL:             getEnv("NATS_URL", "nats://localhost:4222"),
+		ChampionGRPCAddress: getEnv("CHAMPION_GRPC_ADDRESS", "localhost:50051"),
 	}
 
 	if cfg.DatabaseURL == "" {

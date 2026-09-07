@@ -11,6 +11,9 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type failingEventPublisher struct {
@@ -33,6 +36,17 @@ type publishedEvent struct {
 
 type recordingEventPublisher struct {
 	events []publishedEvent
+}
+
+type championCatalogErrorStub struct {
+	err error
+}
+
+func (s championCatalogErrorStub) Get(
+	_ context.Context,
+	_ int,
+) (ChampionInfo, error) {
+	return ChampionInfo{}, s.err
 }
 
 func (p *recordingEventPublisher) Publish(
@@ -1077,6 +1091,167 @@ func TestSyncFromChampSelectSucceedsWhenPublisherFails(
 			"expected current room %q, got %q",
 			roomID,
 			actual,
+		)
+	}
+}
+
+func TestSyncFromChampSelectUsesUnknownWhenChampionServiceUnavailable(
+	t *testing.T,
+) {
+	repository :=
+		repositories.NewInMemoryRoomRepository()
+
+	service := NewRoomService(
+		repository,
+		championCatalogErrorStub{
+			err: status.Error(
+				codes.Unavailable,
+				"champion service unavailable",
+			),
+		},
+		noopEventPublisher{},
+	)
+
+	mustCreateRoom(
+		t,
+		service,
+		"room-1",
+	)
+
+	session := &models.ChampSelectSession{
+		MyTeam: []models.ChampSelectPlayer{
+			{
+				ChampionId: 103,
+				Spell1Id:   4,
+				Spell2Id:   14,
+				GameName:   "PlayerOne",
+				TagLine:    "EUW",
+			},
+		},
+	}
+
+	updated, err := service.SyncFromChampSelect(
+		context.Background(),
+		"room-1",
+		session,
+	)
+	if err != nil {
+		t.Fatalf(
+			"sync with unavailable champion service: %v",
+			err,
+		)
+	}
+
+	if !updated {
+		t.Fatal(
+			"expected room synchronization to continue",
+		)
+	}
+
+	room := mustGetRoom(
+		t,
+		service,
+		"room-1",
+	)
+
+	if len(room.Players) != 1 {
+		t.Fatalf(
+			"expected one player, got %d",
+			len(room.Players),
+		)
+	}
+
+	player := room.Players[0]
+
+	if player.ChampionId != 103 {
+		t.Errorf(
+			"expected champion ID 103, got %d",
+			player.ChampionId,
+		)
+	}
+
+	if player.Champion != "Unknown" {
+		t.Errorf(
+			"expected fallback champion name, got %q",
+			player.Champion,
+		)
+	}
+
+	if player.ChampionImage != "" {
+		t.Errorf(
+			"expected empty fallback image, got %q",
+			player.ChampionImage,
+		)
+	}
+}
+
+func TestSyncFromChampSelectStopsWhenParentContextCancelled(
+	t *testing.T,
+) {
+	repository :=
+		repositories.NewInMemoryRoomRepository()
+
+	service := NewRoomService(
+		repository,
+		championCatalogErrorStub{
+			err: status.Error(
+				codes.Canceled,
+				"request cancelled",
+			),
+		},
+		noopEventPublisher{},
+	)
+
+	mustCreateRoom(
+		t,
+		service,
+		"room-1",
+	)
+
+	ctx, cancel := context.WithCancel(
+		context.Background(),
+	)
+	cancel()
+
+	session := &models.ChampSelectSession{
+		MyTeam: []models.ChampSelectPlayer{
+			{
+				ChampionId: 103,
+				GameName:   "PlayerOne",
+				TagLine:    "EUW",
+			},
+		},
+	}
+
+	updated, err := service.SyncFromChampSelect(
+		ctx,
+		"room-1",
+		session,
+	)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf(
+			"expected context cancellation, got %v",
+			err,
+		)
+	}
+
+	if updated {
+		t.Fatal(
+			"expected cancelled synchronization not to update room",
+		)
+	}
+
+	room := mustGetRoom(
+		t,
+		service,
+		"room-1",
+	)
+
+	if len(room.Players) != 0 {
+		t.Errorf(
+			"expected room players to remain unchanged, got %d",
+			len(room.Players),
 		)
 	}
 }

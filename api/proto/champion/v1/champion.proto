@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package champion.v1;
+
+option go_package = "lol-timer/gen/champion/v1;championv1";
+
+service ChampionService {
+  rpc GetChampion(GetChampionRequest) returns (GetChampionResponse);
+  rpc ListChampions(ListChampionsRequest) returns (ListChampionsResponse);
+}
+
+message Champion {
+  int32 id = 1;
+  string name = 2;
+  string image_url = 3;
+}
+
+message GetChampionRequest {
+  int32 champion_id = 1;
+}
+
+message GetChampionResponse {
+  Champion champion = 1;
+  string catalog_version = 2;
+}
+
+message ListChampionsRequest {}
+
+message ListChampionsResponse {
+  repeated Champion champions = 1;
+  string catalog_version = 2;
+}

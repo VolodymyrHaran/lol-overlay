@@ -26,6 +26,7 @@ The application automatically detects the current Champion Select session, synch
 - 📦 Durable game lifecycle events via NATS JetStream
 - 🚨 Dead-letter handling for failed game events
 - 📤 PostgreSQL transactional outbox with retry and leases
+- 🔌 gRPC Champion Service backed by Riot Data Dragon
 
 ---
 
@@ -43,6 +44,8 @@ The application automatically detects the current Champion Select session, synch
 - Repository Pattern
 - NATS
 - NATS JetStream
+- gRPC
+- Protocol Buffers
 - Event-driven architecture
 
 ### Frontend
@@ -64,7 +67,9 @@ League Client (LCU)
  Champion Select / Gameflow Sync
           │
           ▼
-          ├── RoomService ── Core NATS ── RoomConsumer
+          ├── RoomService ── gRPC ── Champion Service ── Data Dragon
+          │       │
+          │       └── Core NATS ── RoomConsumer
           │                         │
           │                         ├── room.current.changed
           │                         └── room.updated
@@ -123,6 +128,14 @@ events are persisted before publication, then a background relay claims pending
 rows with `FOR UPDATE SKIP LOCKED` and a 30-second lease. Failed publications
 use exponential backoff from five seconds up to five minutes. Published rows
 are retained for 30 days; pending and failed rows are never removed by cleanup.
+
+Champion metadata is isolated behind a unary gRPC API. The main backend keeps
+one long-lived HTTP/2 connection to Champion Service and propagates request
+contexts with a two-second client timeout. Champion Service owns Data Dragon
+loading and its in-memory catalog. `InvalidArgument`, `NotFound`,
+`DeadlineExceeded` and `Unavailable` remain distinguishable gRPC status codes.
+Because champion metadata is non-critical, temporary RPC failures fall back to
+an `Unknown` champion instead of blocking room synchronization.
 
 ---
 
@@ -335,9 +348,54 @@ docker compose up -d
 
 ### Backend
 
+Start Champion Service first:
+
+```bash
+go run ./cmd/champion-service
+```
+
+Then start the main backend. It uses `localhost:50051` by default:
+
 ```bash
 go run ./cmd/server
 ```
+
+Docker Compose builds separate runtime targets for both Go binaries and uses
+the internal address `champion-service:50051`:
+
+```bash
+docker compose up -d --build
+```
+
+### Champion gRPC API
+
+The protobuf contract is defined in
+`api/proto/champion/v1/champion.proto`. Generated files under
+`gen/champion/v1` must not be edited manually.
+
+Available unary RPCs:
+
+```text
+champion.v1.ChampionService/GetChampion
+champion.v1.ChampionService/ListChampions
+```
+
+Example PowerShell request:
+
+```powershell
+'{"championId":103}' |
+    grpcurl `
+        -plaintext `
+        -import-path api/proto `
+        -proto champion/v1/champion.proto `
+        -d '@' `
+        localhost:50051 `
+        champion.v1.ChampionService/GetChampion
+```
+
+The service also registers the standard gRPC Health service. Unary client and
+server interceptors log the full RPC method, status code and duration without
+high-cardinality champion or player identifiers.
 
 ### Frontend
 
@@ -495,6 +553,10 @@ sequences are intentionally excluded from labels.
 - Unit and integration coverage for lifecycle, deduplication, redelivery and DLQ
 - End-to-end outbox-to-inbox integration coverage
 - GitHub Actions CI with PostgreSQL, Redis and NATS JetStream
+- Versioned protobuf contract with generated Go client/server code
+- Separate Champion Service with unary gRPC and standard health service
+- Long-lived gRPC client connection with deadline propagation
+- Graceful Champion Service shutdown and non-critical metadata fallback
 
 ---
 
@@ -510,8 +572,10 @@ sequences are intentionally excluded from labels.
 - [x] Dead-letter strategy
 - [x] Controlled dead-letter replay tooling
 - [x] Transactional outbox
+- [x] gRPC Champion Service
+- [x] Protobuf code generation
 - [ ] Electron desktop application
-- [ ] Riot Data Dragon integration
+- [x] Riot Data Dragon integration
 - [ ] Champion icons cache
 - [ ] Settings window
 - [ ] System tray

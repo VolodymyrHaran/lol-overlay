@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"lol-timer/internal/cache"
+	"lol-timer/internal/championgrpc"
 	"lol-timer/internal/config"
 	"lol-timer/internal/database"
 	"lol-timer/internal/handlers"
@@ -31,6 +32,8 @@ type App struct {
 	RoomHandler    *handlers.RoomHandler
 
 	NATS *messaging.Client
+
+	ChampionClient *championgrpc.Client
 
 	GameEventsConsumer    *messaging.ConsumerHandle
 	ProcessedEventCleanup *services.ProcessedEventCleanupService
@@ -62,6 +65,15 @@ func (a *App) Close() {
 		}
 
 		drainCancel()
+	}
+
+	if a.ChampionClient != nil {
+		if err := a.ChampionClient.Close(); err != nil {
+			log.Printf(
+				"close champion gRPC client: %v",
+				err,
+			)
+		}
 	}
 
 	if a.NATS != nil {

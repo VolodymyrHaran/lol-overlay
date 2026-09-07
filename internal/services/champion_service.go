@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -77,21 +78,59 @@ func (s *ChampionService) Load(
 	return nil
 }
 
-func (s *ChampionService) Get(
+func (s *ChampionService) Find(
 	championID int,
-) ChampionInfo {
+) (ChampionInfo, bool) {
 	s.mu.RLock()
-	champion, exists := s.champions[championID]
-	s.mu.RUnlock()
+	defer s.mu.RUnlock()
 
+	champion, exists := s.champions[championID]
+
+	return champion, exists
+}
+
+func (s *ChampionService) Get(
+	_ context.Context,
+	championID int,
+) (ChampionInfo, error) {
+	champion, exists := s.Find(championID)
 	if exists {
-		return champion
+		return champion, nil
 	}
 
 	return ChampionInfo{
 		ID:   championID,
 		Name: "Unknown",
+	}, nil
+}
+
+func (s *ChampionService) List() []ChampionInfo {
+	s.mu.RLock()
+
+	champions := make(
+		[]ChampionInfo,
+		0,
+		len(s.champions),
+	)
+
+	for _, champion := range s.champions {
+		champions = append(
+			champions,
+			champion,
+		)
 	}
+
+	s.mu.RUnlock()
+
+	sort.Slice(
+		champions,
+		func(i int, j int) bool {
+			return champions[i].ID <
+				champions[j].ID
+		},
+	)
+
+	return champions
 }
 
 func (s *ChampionService) Version() string {

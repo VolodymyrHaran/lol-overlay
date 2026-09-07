@@ -10,13 +10,33 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -o /app/bin/lol-timer ./cmd/server
 
-FROM alpine:3.22
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -o /app/bin/champion-service ./cmd/champion-service
+
+
+FROM alpine:3.22 AS runtime
 
 RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 
-COPY --from=builder /app/bin/lol-timer ./lol-timer
+
+FROM runtime AS champion-service
+
+COPY --from=builder \
+    /app/bin/champion-service \
+    ./champion-service
+
+EXPOSE 50051
+
+ENTRYPOINT ["./champion-service"]
+
+
+FROM runtime AS app
+
+COPY --from=builder \
+    /app/bin/lol-timer \
+    ./lol-timer
 
 EXPOSE 8080
 

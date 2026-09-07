@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"reflect"
 	"sync"
 	"time"
@@ -19,10 +20,17 @@ type EventPublisher interface {
 	Publish(subject string, data []byte) error
 }
 
+type ChampionCatalog interface {
+	Get(
+		ctx context.Context,
+		championID int,
+	) (ChampionInfo, error)
+}
+
 type RoomService struct {
 	mu              sync.Mutex
 	repository      repositories.RoomRepository
-	championService *ChampionService
+	championCatalog ChampionCatalog
 	publisher       EventPublisher
 
 	currentRoomID string
@@ -30,12 +38,12 @@ type RoomService struct {
 
 func NewRoomService(
 	repository repositories.RoomRepository,
-	championService *ChampionService,
+	championCatalog ChampionCatalog,
 	publisher EventPublisher,
 ) *RoomService {
 	return &RoomService{
 		repository:      repository,
-		championService: championService,
+		championCatalog: championCatalog,
 		publisher:       publisher,
 	}
 }
@@ -385,9 +393,32 @@ func (s *RoomService) SyncFromChampSelect(
 
 	for _, member := range session.MyTeam {
 
-		champion := s.championService.Get(
+		champion, err := s.championCatalog.Get(
+			ctx,
 			member.ChampionId,
 		)
+		if err != nil {
+			if ctx.Err() != nil {
+				return false, fmt.Errorf(
+					"get champion %d: %w",
+					member.ChampionId,
+					ctx.Err(),
+				)
+			}
+
+			slog.Warn(
+				"champion metadata unavailable",
+				"champion_id",
+				member.ChampionId,
+				"error",
+				err,
+			)
+
+			champion = ChampionInfo{
+				ID:   member.ChampionId,
+				Name: "Unknown",
+			}
+		}
 
 		player := models.Player{
 			GameName:      member.GameName,
