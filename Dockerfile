@@ -20,6 +20,11 @@ RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 
+FROM migrate/migrate:v4.18.3 AS migrations
+
+COPY migrations /migrations
+
+ENTRYPOINT ["migrate", "-path=/migrations"]
 
 FROM runtime AS champion-service
 

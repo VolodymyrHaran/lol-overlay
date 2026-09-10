@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lol-overlay-config
+  namespace: lol-overlay
+data:
+  HTTP_ADDRESS: "0.0.0.0:8080"
+  LOG_LEVEL: "info"
+
+  REDIS_ADDRESS: "redis:6379"
+  REDIS_DATABASE: "0"
+  ROOM_CACHE_TTL: "5m"
+
+  NATS_URL: "nats://nats:4222"
+  CHAMPION_GRPC_ADDRESS: "champion-service:50051"

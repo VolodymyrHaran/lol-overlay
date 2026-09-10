@@ -397,6 +397,95 @@ The service also registers the standard gRPC Health service. Unary client and
 server interceptors log the full RPC method, status code and duration without
 high-cardinality champion or player identifiers.
 
+### Kubernetes with kind
+
+The project can run in a local Kubernetes cluster created with kind. The kind
+configuration pins the Kubernetes node image and maps the backend NodePort to
+`http://localhost:18080`.
+
+Create the cluster:
+
+```powershell
+kind create cluster `
+    --name lol-overlay `
+    --config deploy/kind/cluster.yaml `
+    --wait 120s
+```
+
+Create the namespace and shared non-sensitive configuration:
+
+```powershell
+kubectl apply -f deploy/kubernetes/namespace.yaml
+kubectl apply -f deploy/kubernetes/configmap.yaml
+```
+
+Create local secrets without committing credentials. The required keys are
+documented in `deploy/kubernetes/secret.example.yaml`.
+
+```powershell
+kubectl create secret generic lol-overlay-secrets `
+    --namespace lol-overlay `
+    --from-literal=POSTGRES_USER=lol_timer `
+    --from-literal=POSTGRES_PASSWORD=lol_timer `
+    --from-literal=POSTGRES_DB=lol_timer `
+    --from-literal=DATABASE_URL='postgres://lol_timer:lol_timer@postgres:5432/lol_timer?sslmode=disable' `
+    --from-literal=REDIS_PASSWORD=''
+
+kubectl create secret generic grafana-admin `
+    --namespace lol-overlay `
+    --from-literal=GF_SECURITY_ADMIN_USER=admin `
+    --from-literal=GF_SECURITY_ADMIN_PASSWORD=admin
+```
+
+Build the project images and load them into kind:
+
+```powershell
+docker build --target champion-service --tag lol-overlay/champion-service:local .
+docker build --target migrations --tag lol-overlay/migrations:local .
+docker build --target app --tag lol-overlay/app:v1 .
+
+kind load docker-image lol-overlay/champion-service:local --name lol-overlay
+kind load docker-image lol-overlay/migrations:local --name lol-overlay
+kind load docker-image lol-overlay/app:v1 --name lol-overlay
+```
+
+Apply the infrastructure, run the migrations, and start the application:
+
+```powershell
+kubectl apply -f deploy/kubernetes/postgres.yaml
+kubectl apply -f deploy/kubernetes/redis.yaml
+kubectl apply -f deploy/kubernetes/nats.yaml
+kubectl apply -f deploy/kubernetes/champion-service.yaml
+kubectl apply -f deploy/kubernetes/migrations-job.yaml
+
+kubectl wait -n lol-overlay `
+    --for=condition=complete `
+    job/database-migrations `
+    --timeout=120s
+
+kubectl apply -f deploy/kubernetes/app.yaml
+kubectl apply -f deploy/kubernetes/prometheus.yaml
+kubectl apply -f deploy/kubernetes/grafana.yaml
+```
+
+Inspect the workload and wait for the backend rollout:
+
+```powershell
+kubectl get pods,services,jobs,pvc -n lol-overlay
+kubectl rollout status deployment/app -n lol-overlay --timeout=120s
+```
+
+Prometheus and Grafana are available through local port forwarding:
+
+```powershell
+kubectl port-forward -n lol-overlay service/prometheus 19090:9090
+kubectl port-forward -n lol-overlay service/grafana 13000:3000
+```
+
+The manifests use Deployments for stateless services, StatefulSets and
+persistent volumes for stateful infrastructure, readiness and liveness probes,
+resource requests and limits, two backend replicas, and rolling updates.
+
 ### Frontend
 
 ```bash
@@ -574,6 +663,11 @@ sequences are intentionally excluded from labels.
 - [x] Transactional outbox
 - [x] gRPC Champion Service
 - [x] Protobuf code generation
+- [x] Local Kubernetes deployment with kind
+- [x] Kubernetes health probes and resource limits
+- [x] Kubernetes Prometheus and Grafana deployment
+- [ ] Helm chart
+- [ ] ArgoCD GitOps deployment
 - [ ] Electron desktop application
 - [x] Riot Data Dragon integration
 - [ ] Champion icons cache
